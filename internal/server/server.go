@@ -124,12 +124,17 @@ func (s *Server) socketHandler() http.Handler {
 }
 
 // Run serves the API on addr and, when socketPath is non-empty, on a unix
-// socket with implicit admin identity. Blocks until the TCP listener stops.
-func (s *Server) Run(addr, socketPath string) error {
+// socket with implicit admin identity. When certFile and keyFile are set it
+// serves HTTPS. Blocks until the TCP listener stops.
+func (s *Server) Run(addr, socketPath, certFile, keyFile string) error {
 	if socketPath != "" {
 		if err := s.serveSocket(socketPath); err != nil {
 			log.Printf("warning: local admin socket unavailable: %v", err)
 		}
+	}
+	if certFile != "" && keyFile != "" {
+		log.Printf("hush %s listening on %s (https)", s.version, addr)
+		return http.ListenAndServeTLS(addr, certFile, keyFile, s.mux)
 	}
 	log.Printf("hush %s listening on %s", s.version, addr)
 	return http.ListenAndServe(addr, s.mux)

@@ -22,3 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t hush:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name hush -p 4874:4874 -v hush-ci:/data hush:ci
+          sh scripts/smoke.sh
+      - name: Server logs on failure
+        if: failure()
+        run: docker logs hush

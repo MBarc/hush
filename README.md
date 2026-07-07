@@ -6,6 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-8F6FFF"></a>
+  <a href=".github/workflows/ci.yml"><img alt="CI" src="https://github.com/MBarc/hush/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="status" src="https://img.shields.io/badge/status-pre--release-1D1730">
 </p>
 
@@ -55,11 +56,89 @@ container, one volume, done.
 git clone https://github.com/MBarc/hush.git
 cd hush
 docker compose up -d
+docker compose logs hush | grep password   # your one-time admin password
 ```
 
-Then open `http://<host>:4874`. Why 4874? Spell HUSH on a phone keypad.
+Open `http://<host>:4874`, sign in as `admin`, and change your password.
+Why port 4874? Spell HUSH on a phone keypad.
 
-A published image on GHCR arrives with the first release.
+Once the first release is tagged you can skip the clone:
+
+```sh
+docker run -d --name hush -p 4874:4874 -v hush-data:/data \
+  ghcr.io/mbarc/hush:latest
+```
+
+### Give an AI agent a secret
+
+1. Create a secret and mark it agent-accessible (the toggle in the web UI,
+   or `--agent-access on` in the CLI).
+2. Mint an agent token scoped to a folder:
+
+   ```sh
+   hush token create claude --type agent --scope 'infra/dns/*'
+   ```
+3. The agent fetches what it needs, then forgets it:
+
+   ```sh
+   curl -H "Authorization: Bearer $HUSH_TOKEN" \
+     http://vault:4874/api/v1/secrets/infra/dns/cloudflare
+   ```
+
+The read only succeeds if the token's scope matches the path **and** the
+secret's agent-access toggle is on. Turn the toggle off and no agent can
+reach it, whatever its scope. Every read is in the audit log.
+
+### Let a device fetch by hostname, no token
+
+Point Hush at your LAN and it builds a device inventory:
+
+```yaml
+# docker-compose.yml
+environment:
+  - HUSH_NETWORK_CIDR=192.168.1.0/24
+```
+
+Trust a discovered device, then it asks by name:
+
+```sh
+hush device trust nas01 --scope 'infra/nas/*' --allow-write
+curl -H "X-Hush-Device: nas01" http://vault:4874/api/v1/secrets/infra/nas/backup-key
+```
+
+Hush only honors the claim if the request arrives from the IP it last saw
+that hostname at, so a name alone is not enough to impersonate a device.
+
+> Device discovery works best with `network_mode: host` so the poller sees
+> your real LAN rather than the Docker bridge. See `docs/DEPLOY.md`.
+
+## Using the CLI
+
+On the vault host, the CLI talks to the server over a local socket and is
+automatically admin. No login:
+
+```sh
+docker exec hush hush ls infra/
+docker exec hush hush get infra/proxmox/root
+docker exec hush hush rotate infra/proxmox/root
+```
+
+From another machine, point it at the server and log in once (this stores a
+personal token in `~/.hush/config.json`):
+
+```sh
+hush login --addr http://vault:4874 --username admin
+hush ls infra/
+```
+
+Everything the web UI can do, the CLI can do. Add `--json` to any command
+for scripting.
+
+## Documentation
+
+- [docs/DEPLOY.md](docs/DEPLOY.md) - compose recipes, host networking, TLS, backups
+- [docs/API.md](docs/API.md) - the REST API the UI, CLI, and agents all use
+- [docs/DESIGN.md](docs/DESIGN.md) - visual design language and palette
 
 ## Status
 
@@ -71,8 +150,8 @@ Pre-release and moving fast. Current progress:
 - [x] CLI with full parity
 - [x] Device identity: network poller + hostname access
 - [x] Rotation: policies, scheduler, webhooks
-- [ ] Web UI (dark, violet, quiet)
-- [ ] v1 on GHCR
+- [x] Web UI (dark, violet, quiet)
+- [x] Release workflow (multi-arch image to GHCR on tag)
 
 Design language and palette live in [docs/DESIGN.md](docs/DESIGN.md).
 

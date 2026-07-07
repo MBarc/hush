@@ -69,7 +69,7 @@ func serveCmd() *cobra.Command {
 			if socketPath == "off" {
 				socketPath = ""
 			}
-			log.Fatal(srv.Run(addr, socketPath))
+			log.Fatal(srv.Run(addr, socketPath, os.Getenv("HUSH_TLS_CERT"), os.Getenv("HUSH_TLS_KEY")))
 			return nil
 		},
 	}
