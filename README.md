@@ -52,6 +52,19 @@ container, one volume, done.
 
 ## Quickstart
 
+On a Linux host that sits on your LAN (a Raspberry Pi, homelab server, or
+VM), one command clones, builds, detects your subnet, and starts Hush with
+device discovery on:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/MBarc/hush/main/scripts/install.sh | sh
+```
+
+It prints your one-time admin password at the end. Open `http://<host>:4874`,
+sign in as `admin`, and change it. Why port 4874? Spell HUSH on a phone keypad.
+
+Prefer to do it by hand, or just trying it out without network scanning?
+
 ```sh
 git clone https://github.com/MBarc/hush.git
 cd hush
@@ -59,15 +72,10 @@ docker compose up -d
 docker compose logs hush | grep password   # your one-time admin password
 ```
 
-Open `http://<host>:4874`, sign in as `admin`, and change your password.
-Why port 4874? Spell HUSH on a phone keypad.
-
-Once the first release is tagged you can skip the clone:
-
-```sh
-docker run -d --name hush -p 4874:4874 -v hush-data:/data \
-  ghcr.io/mbarc/hush:latest
-```
+> Device discovery needs Hush on your real LAN, so it wants a Linux host with
+> host networking (what the installer sets up). It does not work from Docker
+> Desktop on Windows or Mac, where containers sit behind a NAT. See
+> [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ### Give an AI agent a secret
 

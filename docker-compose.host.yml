@@ -23,12 +23,14 @@ services:
     volumes:
       - hush-data:/data
     environment:
-      # Your LAN subnet. Host 192.168.5.124/22 -> network 192.168.4.0/22
-      # (covers 192.168.4.0 - 192.168.7.255).
-      - HUSH_NETWORK_CIDR=192.168.4.0/22
-      - HUSH_POLL_INTERVAL=5m
+      # Your LAN subnet, like 192.168.1.0/24. The install script detects this
+      # automatically; set it here (or in the environment) to run by hand.
+      # Empty disables device discovery. A host-form value like
+      # 192.168.5.124/22 is fine - Hush computes the network from it.
+      - HUSH_NETWORK_CIDR=${HUSH_NETWORK_CIDR:-}
+      - HUSH_POLL_INTERVAL=${HUSH_POLL_INTERVAL:-5m}
       # Change if :4874 collides with something on the host.
-      - HUSH_LISTEN=:4874
+      - HUSH_LISTEN=${HUSH_LISTEN:-:4874}
     restart: unless-stopped
 
 volumes:
