@@ -1,0 +1,35 @@
+# Host-networking deployment for device discovery.
+#
+# The default docker-compose.yml puts Hush on a Docker bridge network,
+# where the device poller can only see other containers. To discover and
+# authenticate real machines on your LAN, Hush must share the host's
+# network stack.
+#
+#   docker compose -f docker-compose.host.yml up -d --build
+#
+# Linux hosts: this works out of the box.
+# Docker Desktop (Windows/Mac): also requires WSL mirrored networking
+#   (networkingMode=mirrored in ~/.wslconfig) and Docker Desktop host
+#   networking enabled. See docs/DEPLOY.md.
+#
+# With host networking there is no port mapping: Hush binds directly to
+# HUSH_LISTEN (default :4874) on the host.
+services:
+  hush:
+    build: .
+    image: hush:dev
+    container_name: hush
+    network_mode: host
+    volumes:
+      - hush-data:/data
+    environment:
+      # Your LAN subnet. Host 192.168.5.124/22 -> network 192.168.4.0/22
+      # (covers 192.168.4.0 - 192.168.7.255).
+      - HUSH_NETWORK_CIDR=192.168.4.0/22
+      - HUSH_POLL_INTERVAL=5m
+      # Change if :4874 collides with something on the host.
+      - HUSH_LISTEN=:4874
+    restart: unless-stopped
+
+volumes:
+  hush-data:

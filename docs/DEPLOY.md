@@ -48,6 +48,42 @@ services:
 With host networking the port mapping is dropped; Hush listens on
 `0.0.0.0:4874` directly. Change the port with `HUSH_LISTEN=:8200`.
 
+A ready-made host-networking compose file is included:
+
+```sh
+docker compose -f docker-compose.host.yml up -d --build
+```
+
+### Docker Desktop (Windows / Mac)
+
+Docker Desktop runs containers inside a NAT'd Linux VM, so by default a
+container - even with `network_mode: host` - cannot reach your physical
+LAN. Two settings fix that:
+
+1. **WSL mirrored networking** (Windows 11 22H2+). Add to `~/.wslconfig`:
+
+   ```ini
+   [wsl2]
+   networkingMode=mirrored
+   dnsTunneling=true
+   firewall=true
+   ```
+
+2. **Docker Desktop host networking**. Settings, Resources, Network,
+   enable "host networking" (or `EnableHostNetworking: true` in
+   `%APPDATA%\Docker\settings-store.json`).
+
+Then apply both by fully restarting the WSL backend:
+
+```powershell
+wsl --shutdown
+```
+
+Docker Desktop restarts the VM automatically. Note that `wsl --shutdown`
+stops every running container, so do it when nothing else is mid-task.
+After it comes back, `docker compose -f docker-compose.host.yml up -d`
+and the poller will see your LAN.
+
 ## Environment variables
 
 | Variable | Default | Purpose |
