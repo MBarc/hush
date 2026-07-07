@@ -66,10 +66,10 @@ A published image on GHCR arrives with the first release.
 Pre-release and moving fast. Current progress:
 
 - [x] Brand, design tokens, containerized skeleton
-- [ ] Encrypted storage core (SQLite, envelope encryption)
-- [ ] Auth: users, sessions, tokens, folder grants
+- [x] Encrypted storage core (SQLite, envelope encryption)
+- [x] Auth: users, sessions, tokens, folder grants
+- [x] CLI with full parity
 - [ ] Device identity: network poller + hostname access
-- [ ] CLI with full parity
 - [ ] Rotation: policies, scheduler, webhooks
 - [ ] Web UI (dark, violet, quiet)
 - [ ] v1 on GHCR

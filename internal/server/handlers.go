@@ -318,8 +318,18 @@ func (s *Server) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "bad request body")
 		return
 	}
-	if req.Type == store.TokenTypeAgent && len(req.Scopes) == 0 {
-		httpError(w, http.StatusBadRequest, "agent tokens require explicit scopes")
+	id := mustIdentity(r)
+	if req.Type == store.TokenTypeAgent {
+		if !id.isAdmin() {
+			httpError(w, http.StatusForbidden, "agent tokens require admin access")
+			return
+		}
+		if len(req.Scopes) == 0 {
+			httpError(w, http.StatusBadRequest, "agent tokens require explicit scopes")
+			return
+		}
+	} else if id.tokenType == store.TokenTypeAgent {
+		httpError(w, http.StatusForbidden, "agent tokens cannot mint tokens")
 		return
 	}
 	token, hash, err := auth.NewToken()
@@ -331,7 +341,7 @@ func (s *Server) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 	if req.TTLDays > 0 {
 		expiresAt = time.Now().Add(time.Duration(req.TTLDays) * 24 * time.Hour).Unix()
 	}
-	id := mustIdentity(r)
+	// User tokens always belong to their creator.
 	owner := id.username
 	if owner == "" || id.actorType == "socket" {
 		owner = "admin"
@@ -351,6 +361,26 @@ func (s *Server) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTokenDelete(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	id := mustIdentity(r)
+	if !id.isAdmin() {
+		// Non-admins may only revoke their own tokens.
+		tokens, err := s.st.ListTokens()
+		if err != nil {
+			storeError(w, err)
+			return
+		}
+		owned := false
+		for _, t := range tokens {
+			if t.Name == name && t.Owner == id.username && t.Type == store.TokenTypeUser {
+				owned = true
+				break
+			}
+		}
+		if !owned || id.tokenType == store.TokenTypeAgent {
+			httpError(w, http.StatusForbidden, "you may only revoke your own tokens")
+			return
+		}
+	}
 	if err := s.st.DeleteToken(name); err != nil {
 		storeError(w, err)
 		return

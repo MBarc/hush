@@ -85,8 +85,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("DELETE /api/v1/secrets/{path...}", s.auth(s.adminOnly(s.handleSecretDelete)))
 
 	mux.HandleFunc("GET /api/v1/tokens", s.auth(s.adminOnly(s.handleTokenList)))
-	mux.HandleFunc("POST /api/v1/tokens", s.auth(s.adminOnly(s.handleTokenCreate)))
-	mux.HandleFunc("DELETE /api/v1/tokens/{name}", s.auth(s.adminOnly(s.handleTokenDelete)))
+	mux.HandleFunc("POST /api/v1/tokens", s.auth(s.handleTokenCreate))
+	mux.HandleFunc("DELETE /api/v1/tokens/{name}", s.auth(s.handleTokenDelete))
 
 	mux.HandleFunc("GET /api/v1/users", s.auth(s.adminOnly(s.handleUserList)))
 	mux.HandleFunc("POST /api/v1/users", s.auth(s.adminOnly(s.handleUserCreate)))
@@ -156,6 +156,9 @@ func clientIP(r *http.Request) string {
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
+		if r.RemoteAddr == "" || r.RemoteAddr == "@" {
+			return "local" // unix socket
+		}
 		return r.RemoteAddr
 	}
 	return host
