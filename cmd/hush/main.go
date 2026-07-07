@@ -5,6 +5,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/MBarc/hush/internal/crypto"
+	"github.com/MBarc/hush/internal/store"
 )
 
 const version = "0.1.0-dev"
@@ -40,10 +43,32 @@ func serve() {
 	if addr == "" {
 		addr = ":4874"
 	}
+	dataDir := os.Getenv("HUSH_DATA")
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		log.Fatalf("creating data dir %s: %v", dataDir, err)
+	}
+	key, err := crypto.LoadOrCreateMasterKey(dataDir)
+	if err != nil {
+		log.Fatalf("master key: %v", err)
+	}
+	st, err := store.Open(dataDir, key)
+	if err != nil {
+		log.Fatalf("opening vault: %v", err)
+	}
+	defer st.Close()
+	n, err := st.CountSecrets()
+	if err != nil {
+		log.Fatalf("vault check: %v", err)
+	}
+	st.Audit(store.AuditEntry{ActorType: "system", Actor: "hush", Action: "server.start"})
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/", handleIndex)
-	log.Printf("hush %s listening on %s", version, addr)
+	log.Printf("hush %s listening on %s, vault holds %d secrets", version, addr, n)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
