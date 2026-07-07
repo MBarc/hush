@@ -80,11 +80,15 @@ func (p *Poller) sweep(ctx context.Context) {
 			if !Alive(ip) {
 				return
 			}
-			hostname := ReverseLookup(ip)
-			if hostname == "" {
-				return // unnamed devices cannot claim a hostname anyway
+			// Reverse DNS is best-effort: many home networks publish no
+			// PTR records. A host with no name is still a real device, so
+			// identify it by its IP. Admins can rename it later, and it
+			// authenticates with `X-Hush-Device: <ip>`.
+			identity := ReverseLookup(ip)
+			if identity == "" {
+				identity = ip
 			}
-			if err := p.st.UpsertDevice(hostname, ip); err == nil {
+			if err := p.st.UpsertDevice(identity, ip); err == nil {
 				mu.Lock()
 				found++
 				mu.Unlock()
@@ -92,7 +96,7 @@ func (p *Poller) sweep(ctx context.Context) {
 		}(ip)
 	}
 	wg.Wait()
-	log.Printf("device poller: swept %d addresses in %s, %d named devices seen",
+	log.Printf("device poller: swept %d addresses in %s, %d live devices seen",
 		len(ips), time.Since(start).Round(time.Millisecond), found)
 }
 
