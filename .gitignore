@@ -1,0 +1,15 @@
+# Binaries and build output
+/bin/
+/out/
+*.exe
+/hush
+
+# Web UI (arrives with the web milestone)
+web/node_modules/
+web/dist/
+
+# Local data and secrets
+/data/
+*.db
+master.key
+.env

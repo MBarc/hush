@@ -1,0 +1,13 @@
+services:
+  hush:
+    build: .
+    image: hush:dev
+    container_name: hush
+    ports:
+      - "4874:4874"
+    volumes:
+      - hush-data:/data
+    restart: unless-stopped
+
+volumes:
+  hush-data:
