@@ -1,0 +1,273 @@
+package server
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/MBarc/hush/internal/crypto"
+	"github.com/MBarc/hush/internal/store"
+)
+
+type testEnv struct {
+	t   *testing.T
+	ts  *httptest.Server
+	jar map[string]string // username -> session cookie
+}
+
+func newTestEnv(t *testing.T) *testEnv {
+	t.Helper()
+	os.Setenv("HUSH_ADMIN_PASSWORD", "test-admin-password")
+	t.Cleanup(func() { os.Unsetenv("HUSH_ADMIN_PASSWORD") })
+	key := make([]byte, crypto.KeySize)
+	rand.Read(key)
+	st, err := store.Open(t.TempDir(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	srv, err := New(st, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return &testEnv{t: t, ts: ts, jar: map[string]string{}}
+}
+
+// call makes a request. cred is "" (anon), "cookie:<user>" for a session,
+// or a bearer token.
+func (e *testEnv) call(method, path, cred string, body any) (int, map[string]any) {
+	e.t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		json.NewEncoder(&buf).Encode(body)
+	}
+	req, _ := http.NewRequest(method, e.ts.URL+path, &buf)
+	if strings.HasPrefix(cred, "cookie:") {
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: e.jar[strings.TrimPrefix(cred, "cookie:")]})
+	} else if cred != "" {
+		req.Header.Set("Authorization", "Bearer "+cred)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
+func (e *testEnv) login(username, password string) {
+	e.t.Helper()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"username": username, "password": password})
+	resp, err := http.Post(e.ts.URL+"/api/v1/auth/login", "application/json", &buf)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		e.t.Fatalf("login %s: status %d", username, resp.StatusCode)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookie {
+			e.jar[username] = c.Value
+		}
+	}
+}
+
+func TestBootstrapAndLogin(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	code, me := e.call("GET", "/api/v1/auth/me", "cookie:admin", nil)
+	if code != 200 || me["username"] != "admin" || me["admin"] != true {
+		t.Fatalf("me: %d %+v", code, me)
+	}
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"username": "admin", "password": "wrong"})
+	resp, _ := http.Post(e.ts.URL+"/api/v1/auth/login", "application/json", &buf)
+	if resp.StatusCode != 401 {
+		t.Fatalf("bad login: %d", resp.StatusCode)
+	}
+}
+
+func TestSecretLifecycle(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+
+	code, out := e.call("PUT", "/api/v1/secrets/infra/proxmox/root", "cookie:admin",
+		map[string]any{"value": "hunter2"})
+	if code != 200 || out["version"].(float64) != 1 {
+		t.Fatalf("put: %d %+v", code, out)
+	}
+	code, out = e.call("GET", "/api/v1/secrets/infra/proxmox/root", "cookie:admin", nil)
+	if code != 200 || out["value"] != "hunter2" {
+		t.Fatalf("get: %d %+v", code, out)
+	}
+	e.call("PUT", "/api/v1/secrets/infra/proxmox/root", "cookie:admin", map[string]any{"value": "hunter3"})
+	code, out = e.call("GET", "/api/v1/secrets/infra/proxmox/root?version=1", "cookie:admin", nil)
+	if code != 200 || out["value"] != "hunter2" {
+		t.Fatalf("old version: %d %+v", code, out)
+	}
+	code, out = e.call("GET", "/api/v1/secrets/infra/proxmox/root?versions=1", "cookie:admin", nil)
+	if code != 200 || len(out["versions"].([]any)) != 2 {
+		t.Fatalf("versions: %d %+v", code, out)
+	}
+	code, _ = e.call("DELETE", "/api/v1/secrets/infra/proxmox/root", "cookie:admin", nil)
+	if code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+	code, _ = e.call("GET", "/api/v1/secrets/infra/proxmox/root", "cookie:admin", nil)
+	if code != 404 {
+		t.Fatalf("after delete expected 404, got %d", code)
+	}
+}
+
+func TestReadonlyGrantsAndMethodEnforcement(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/dns/cloudflare", "cookie:admin", map[string]any{"value": "cf"})
+	e.call("PUT", "/api/v1/secrets/media/jellyfin/admin", "cookie:admin", map[string]any{"value": "jf"})
+
+	code, _ := e.call("POST", "/api/v1/users", "cookie:admin",
+		map[string]any{"username": "viewer", "password": "viewer-pass-1", "role": "readonly"})
+	if code != 201 {
+		t.Fatalf("create viewer: %d", code)
+	}
+	code, _ = e.call("POST", "/api/v1/users/viewer/grants", "cookie:admin", map[string]any{"path": "infra"})
+	if code != 201 {
+		t.Fatalf("grant: %d", code)
+	}
+	e.login("viewer", "viewer-pass-1")
+
+	// Granted subtree readable.
+	code, out := e.call("GET", "/api/v1/secrets/infra/dns/cloudflare", "cookie:viewer", nil)
+	if code != 200 || out["value"] != "cf" {
+		t.Fatalf("viewer read granted: %d %+v", code, out)
+	}
+	// Ungranted subtree hidden.
+	code, _ = e.call("GET", "/api/v1/secrets/media/jellyfin/admin", "cookie:viewer", nil)
+	if code != 404 {
+		t.Fatalf("viewer read ungranted expected 404, got %d", code)
+	}
+	// Any mutation is 403.
+	code, _ = e.call("PUT", "/api/v1/secrets/infra/dns/new", "cookie:viewer", map[string]any{"value": "x"})
+	if code != 403 {
+		t.Fatalf("viewer write expected 403, got %d", code)
+	}
+	code, _ = e.call("DELETE", "/api/v1/secrets/infra/dns/cloudflare", "cookie:viewer", nil)
+	if code != 403 {
+		t.Fatalf("viewer delete expected 403, got %d", code)
+	}
+	// Tree filtered: root shows only infra.
+	code, tree := e.call("GET", "/api/v1/tree/", "cookie:viewer", nil)
+	if code != 200 {
+		t.Fatalf("tree: %d", code)
+	}
+	folders := tree["folders"].([]any)
+	if len(folders) != 1 || folders[0].(map[string]any)["path"] != "infra" {
+		t.Fatalf("viewer root tree should only show infra: %+v", folders)
+	}
+}
+
+func TestAgentTokenScoping(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/dns/cloudflare", "cookie:admin",
+		map[string]any{"value": "cf-token", "agentAccess": true})
+	e.call("PUT", "/api/v1/secrets/infra/dns/hetzner", "cookie:admin",
+		map[string]any{"value": "hz-token"}) // agentAccess stays false
+	e.call("PUT", "/api/v1/secrets/media/jellyfin/admin", "cookie:admin",
+		map[string]any{"value": "jf", "agentAccess": true})
+
+	code, out := e.call("POST", "/api/v1/tokens", "cookie:admin",
+		map[string]any{"name": "claude", "type": "agent", "scopes": []string{"infra/dns/*"}})
+	if code != 201 {
+		t.Fatalf("token create: %d %+v", code, out)
+	}
+	token := out["token"].(string)
+
+	// In scope + agent-accessible: allowed.
+	code, out = e.call("GET", "/api/v1/secrets/infra/dns/cloudflare", token, nil)
+	if code != 200 || out["value"] != "cf-token" {
+		t.Fatalf("agent read allowed: %d %+v", code, out)
+	}
+	// In scope but per-secret flag off: denied.
+	code, _ = e.call("GET", "/api/v1/secrets/infra/dns/hetzner", token, nil)
+	if code != 404 {
+		t.Fatalf("agent read without flag expected 404, got %d", code)
+	}
+	// Agent-accessible but out of scope: denied.
+	code, _ = e.call("GET", "/api/v1/secrets/media/jellyfin/admin", token, nil)
+	if code != 404 {
+		t.Fatalf("agent read out of scope expected 404, got %d", code)
+	}
+	// Agents cannot write, browse, or admin.
+	code, _ = e.call("PUT", "/api/v1/secrets/infra/dns/cloudflare", token, map[string]any{"value": "x"})
+	if code != 403 {
+		t.Fatalf("agent write expected 403, got %d", code)
+	}
+	code, _ = e.call("GET", "/api/v1/tree/", token, nil)
+	if code != 403 {
+		t.Fatalf("agent tree expected 403, got %d", code)
+	}
+	code, _ = e.call("GET", "/api/v1/audit", token, nil)
+	if code != 403 {
+		t.Fatalf("agent audit expected 403, got %d", code)
+	}
+}
+
+func TestAuditTrail(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/x/y", "cookie:admin", map[string]any{"value": "v"})
+	e.call("GET", "/api/v1/secrets/infra/x/y", "cookie:admin", nil)
+	code, _ := e.call("GET", "/api/v1/audit?limit=50", "cookie:admin", nil)
+	if code != 200 {
+		t.Fatalf("audit: %d", code)
+	}
+	// audit returns a JSON array; re-fetch raw to assert contents
+	req, _ := http.NewRequest("GET", e.ts.URL+"/api/v1/audit?limit=50", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: e.jar["admin"]})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var entries []map[string]any
+	json.NewDecoder(resp.Body).Decode(&entries)
+	var actions []string
+	for _, en := range entries {
+		actions = append(actions, fmt.Sprint(en["action"]))
+	}
+	joined := strings.Join(actions, ",")
+	for _, want := range []string{"secret.read", "secret.write", "login", "user.create"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("audit missing %s: %s", want, joined)
+		}
+	}
+}
+
+func TestUnauthenticated(t *testing.T) {
+	e := newTestEnv(t)
+	code, _ := e.call("GET", "/api/v1/secrets/infra/x/y", "", nil)
+	if code != 401 {
+		t.Fatalf("expected 401, got %d", code)
+	}
+	resp, err := http.Get(e.ts.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("healthz should be public: %d", resp.StatusCode)
+	}
+}
