@@ -319,6 +319,33 @@ func (c *Client) Revoke(username, path string) error {
 	return c.do("DELETE", "/api/v1/users/"+url.PathEscape(username)+"/grants/"+escapePath(path), nil, nil)
 }
 
+func (c *Client) Rotate(path string) (int, error) {
+	var out struct {
+		Version int `json:"version"`
+	}
+	err := c.do("POST", "/api/v1/rotate/"+escapePath(path), map[string]any{}, &out)
+	return out.Version, err
+}
+
+func (c *Client) ListDevices() ([]store.Device, error) {
+	var out []store.Device
+	err := c.do("GET", "/api/v1/devices", nil, &out)
+	return out, err
+}
+
+func (c *Client) TrustDevice(hostname string, scopes []string, allowWrite bool, ttlDays int) error {
+	return c.do("POST", "/api/v1/devices/"+url.PathEscape(hostname)+"/trust",
+		map[string]any{"scopes": scopes, "allowWrite": allowWrite, "ttlDays": ttlDays}, nil)
+}
+
+func (c *Client) BlockDevice(hostname string) error {
+	return c.do("POST", "/api/v1/devices/"+url.PathEscape(hostname)+"/block", map[string]any{}, nil)
+}
+
+func (c *Client) DeleteDevice(hostname string) error {
+	return c.do("DELETE", "/api/v1/devices/"+url.PathEscape(hostname), nil, nil)
+}
+
 func (c *Client) Audit(limit, offset int) ([]store.AuditEntry, error) {
 	var out []store.AuditEntry
 	err := c.do("GET", fmt.Sprintf("/api/v1/audit?limit=%d&offset=%d", limit, offset), nil, &out)

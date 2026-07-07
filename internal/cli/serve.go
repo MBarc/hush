@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MBarc/hush/internal/crypto"
+	"github.com/MBarc/hush/internal/poller"
 	"github.com/MBarc/hush/internal/server"
 	"github.com/MBarc/hush/internal/store"
 )
@@ -43,6 +46,21 @@ func serveCmd() *cobra.Command {
 				return err
 			}
 			st.Audit(store.AuditEntry{ActorType: "system", Actor: "hush", Action: "server.start"})
+			srv.StartRotationLoop(context.Background(), 15*time.Minute)
+
+			if cidr := os.Getenv("HUSH_NETWORK_CIDR"); cidr != "" {
+				interval := 5 * time.Minute
+				if v := os.Getenv("HUSH_POLL_INTERVAL"); v != "" {
+					if d, err := time.ParseDuration(v); err == nil {
+						interval = d
+					} else {
+						log.Printf("warning: bad HUSH_POLL_INTERVAL %q, using %s", v, interval)
+					}
+				}
+				go poller.New(st, cidr, interval).Run(context.Background())
+			} else {
+				log.Printf("device poller off (set HUSH_NETWORK_CIDR, like 192.168.1.0/24, to enable)")
+			}
 
 			socketPath := os.Getenv("HUSH_SOCKET")
 			if socketPath == "" {

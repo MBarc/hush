@@ -35,7 +35,8 @@ func Execute(version string) {
 	root.AddCommand(
 		serveCmd(), versionCmd(), loginCmd(), logoutCmd(), whoamiCmd(),
 		lsCmd(), getCmd(), setCmd(), rmCmd(), mkdirCmd(), rmdirCmd(),
-		versionsCmd(), metaCmd(), tokenCmd(), userCmd(), auditCmd(),
+		versionsCmd(), metaCmd(), rotateCmd(), policyCmd(),
+		tokenCmd(), userCmd(), deviceCmd(), auditCmd(),
 	)
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

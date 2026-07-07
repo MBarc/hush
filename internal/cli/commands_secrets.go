@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -271,6 +272,86 @@ func metaCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&agentAccess, "agent-access", "", "set agent access: on or off")
+	return cmd
+}
+
+func rotateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rotate <path>",
+		Short: "rotate a secret now (new generated value per its policy)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			version, err := c.Rotate(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s rotated to v%d\n", args[0], version)
+			return nil
+		},
+	}
+}
+
+func policyCmd() *cobra.Command {
+	var intervalDays, length int
+	var charset, webhookURL, webhookSecret string
+	var includeValue bool
+	cmd := &cobra.Command{
+		Use:   "policy <path>",
+		Short: "show or set a secret's rotation policy",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			if !cmd.Flags().Changed("interval-days") && !cmd.Flags().Changed("length") &&
+				!cmd.Flags().Changed("charset") && !cmd.Flags().Changed("webhook-url") &&
+				!cmd.Flags().Changed("webhook-secret") && !cmd.Flags().Changed("webhook-include-value") {
+				v, err := c.GetSecret(args[0], 0)
+				if err != nil {
+					return err
+				}
+				fmt.Println(v.Meta.Rotation)
+				return nil
+			}
+			policy := map[string]any{}
+			if length > 0 {
+				policy["length"] = length
+			}
+			if charset != "" {
+				policy["charset"] = charset
+			}
+			if intervalDays > 0 {
+				policy["intervalDays"] = intervalDays
+			}
+			if webhookURL != "" {
+				policy["webhookUrl"] = webhookURL
+			}
+			if webhookSecret != "" {
+				policy["webhookSecret"] = webhookSecret
+			}
+			if includeValue {
+				policy["includeValue"] = true
+			}
+			raw, _ := json.Marshal(policy)
+			meta, err := c.SetSecretMeta(args[0], nil, raw)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s rotation policy set: %s\n", meta.Path, meta.Rotation)
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&intervalDays, "interval-days", 0, "auto-rotate every N days (0 = manual only)")
+	cmd.Flags().IntVar(&length, "length", 0, "generated value length (default 32)")
+	cmd.Flags().StringVar(&charset, "charset", "", "full, alnum, hex, digits, or literal characters")
+	cmd.Flags().StringVar(&webhookURL, "webhook-url", "", "POST here after each rotation")
+	cmd.Flags().StringVar(&webhookSecret, "webhook-secret", "", "HMAC key for the X-Hush-Signature header")
+	cmd.Flags().BoolVar(&includeValue, "webhook-include-value", false, "include the new value in the webhook payload")
 	return cmd
 }
 

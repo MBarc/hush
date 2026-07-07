@@ -118,6 +118,27 @@ func (s *Store) DeleteToken(name string) error {
 	return nil
 }
 
+// ListSecretsWithRotation returns secrets that have a rotation policy.
+func (s *Store) ListSecretsWithRotation() ([]SecretMeta, error) {
+	rows, err := s.db.Query(
+		`SELECT path, name, agent_access, rotation, current_version, created_at, updated_at
+		 FROM secrets WHERE rotation != '{}' AND rotation != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SecretMeta
+	for rows.Next() {
+		var m SecretMeta
+		if err := rows.Scan(&m.Path, &m.Name, &m.AgentAccess, &m.Rotation,
+			&m.CurrentVersion, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // SetSecretMeta updates the agent-access flag and/or rotation policy.
 func (s *Store) SetSecretMeta(path string, agentAccess *bool, rotation *string) error {
 	path, err := NormalizePath(path)

@@ -18,6 +18,7 @@ import (
 type testEnv struct {
 	t   *testing.T
 	ts  *httptest.Server
+	st  *store.Store
 	jar map[string]string // username -> session cookie
 }
 
@@ -38,7 +39,27 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return &testEnv{t: t, ts: ts, jar: map[string]string{}}
+	return &testEnv{t: t, ts: ts, st: st, jar: map[string]string{}}
+}
+
+// callWithHeader is call with an arbitrary auth header instead of
+// cookie/bearer credentials.
+func (e *testEnv) callWithHeader(method, path, header, value string, body any) (int, map[string]any) {
+	e.t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		json.NewEncoder(&buf).Encode(body)
+	}
+	req, _ := http.NewRequest(method, e.ts.URL+path, &buf)
+	req.Header.Set(header, value)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
 }
 
 // call makes a request. cred is "" (anon), "cookie:<user>" for a session,

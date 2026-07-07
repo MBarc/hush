@@ -69,8 +69,8 @@ Pre-release and moving fast. Current progress:
 - [x] Encrypted storage core (SQLite, envelope encryption)
 - [x] Auth: users, sessions, tokens, folder grants
 - [x] CLI with full parity
-- [ ] Device identity: network poller + hostname access
-- [ ] Rotation: policies, scheduler, webhooks
+- [x] Device identity: network poller + hostname access
+- [x] Rotation: policies, scheduler, webhooks
 - [ ] Web UI (dark, violet, quiet)
 - [ ] v1 on GHCR
 

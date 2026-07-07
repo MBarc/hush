@@ -7,6 +7,12 @@ services:
       - "4874:4874"
     volumes:
       - hush-data:/data
+    environment:
+      # Set to your LAN subnet to enable device discovery, like 192.168.1.0/24.
+      # Best results with host networking (see README) so the poller sees
+      # your real LAN instead of the Docker bridge.
+      - HUSH_NETWORK_CIDR=${HUSH_NETWORK_CIDR:-}
+      - HUSH_POLL_INTERVAL=${HUSH_POLL_INTERVAL:-5m}
     restart: unless-stopped
 
 volumes:

@@ -80,7 +80,9 @@ func (s *Server) routes() {
 	mux.HandleFunc("DELETE /api/v1/folders/{path...}", s.auth(s.adminOnly(s.handleFolderDelete)))
 
 	mux.HandleFunc("GET /api/v1/secrets/{path...}", s.auth(s.handleSecretGet))
-	mux.HandleFunc("PUT /api/v1/secrets/{path...}", s.auth(s.adminOnly(s.handleSecretPut)))
+	mux.HandleFunc("PUT /api/v1/secrets/{path...}", s.auth(s.handleSecretPut))
+	mux.HandleFunc("POST /api/v1/secrets/{path...}", s.auth(s.handleSecretPut)) // devices and simple clients POST
+	mux.HandleFunc("POST /api/v1/rotate/{path...}", s.auth(s.adminOnly(s.handleRotate)))
 	mux.HandleFunc("PATCH /api/v1/secrets/{path...}", s.auth(s.adminOnly(s.handleSecretMeta)))
 	mux.HandleFunc("DELETE /api/v1/secrets/{path...}", s.auth(s.adminOnly(s.handleSecretDelete)))
 
@@ -94,6 +96,11 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /api/v1/users/{name}/password", s.auth(s.handleUserPassword))
 	mux.HandleFunc("POST /api/v1/users/{name}/grants", s.auth(s.adminOnly(s.handleGrantAdd)))
 	mux.HandleFunc("DELETE /api/v1/users/{name}/grants/{path...}", s.auth(s.adminOnly(s.handleGrantRemove)))
+
+	mux.HandleFunc("GET /api/v1/devices", s.auth(s.adminOnly(s.handleDeviceList)))
+	mux.HandleFunc("POST /api/v1/devices/{hostname}/trust", s.auth(s.adminOnly(s.handleDeviceTrust)))
+	mux.HandleFunc("POST /api/v1/devices/{hostname}/block", s.auth(s.adminOnly(s.handleDeviceBlock)))
+	mux.HandleFunc("DELETE /api/v1/devices/{hostname}", s.auth(s.adminOnly(s.handleDeviceDelete)))
 
 	mux.HandleFunc("GET /api/v1/audit", s.auth(s.adminOnly(s.handleAudit)))
 	s.mux = mux

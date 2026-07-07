@@ -118,8 +118,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	id := mustIdentity(r)
-	if id.tokenType == store.TokenTypeAgent {
-		httpError(w, http.StatusForbidden, "agent tokens fetch secrets directly")
+	if id.isMachine() {
+		httpError(w, http.StatusForbidden, "machine identities fetch secrets directly")
 		return
 	}
 	path, err := store.NormalizePath(r.PathValue("path"))
@@ -240,10 +240,47 @@ func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 	}
 	id := mustIdentity(r)
 	path := r.PathValue("path")
+	isNew := false
+	if !id.isAdmin() {
+		// Only trusted devices with the write flag may mutate, and only
+		// inside their scopes on agent-accessible (or brand new) secrets.
+		if !id.device || !id.allowWrite {
+			httpError(w, http.StatusForbidden, "admin access required")
+			return
+		}
+		normalized, err := store.NormalizePath(path)
+		if err != nil {
+			storeError(w, err)
+			return
+		}
+		if !auth.MatchAnyScope(id.scopes, normalized) {
+			s.audit(r, "secret.write.denied", normalized, "out of device scope")
+			httpError(w, http.StatusNotFound, "not found")
+			return
+		}
+		meta, err := s.st.GetSecretMeta(normalized)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			isNew = true
+		case err != nil:
+			storeError(w, err)
+			return
+		case !meta.AgentAccess:
+			s.audit(r, "secret.write.denied", normalized, "agent access off")
+			httpError(w, http.StatusNotFound, "not found")
+			return
+		}
+		req.AgentAccess = nil // devices cannot change the flag
+	}
 	version, err := s.st.SetSecret(path, []byte(req.Value), id.label())
 	if err != nil {
 		storeError(w, err)
 		return
+	}
+	if isNew {
+		// Machine-created secrets stay machine-readable.
+		on := true
+		s.st.SetSecretMeta(path, &on, nil)
 	}
 	if req.AgentAccess != nil {
 		if err := s.st.SetSecretMeta(path, req.AgentAccess, nil); err != nil {

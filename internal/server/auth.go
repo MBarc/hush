@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -15,13 +17,15 @@ const sessionCookie = "hush_session"
 const sessionTTL = 7 * 24 * time.Hour
 
 type identity struct {
-	actorType string // user | token | socket
-	username  string
-	role      string
-	tokenName string
-	tokenType string // user | agent (when actorType == token)
-	grants    []string
-	scopes    []string
+	actorType  string // user | token | device | socket
+	username   string
+	role       string
+	tokenName  string
+	tokenType  string // user | agent (when actorType == token)
+	grants     []string
+	scopes     []string
+	device     bool
+	allowWrite bool // device may write within its scopes
 }
 
 func (id identity) isAdmin() bool {
@@ -33,11 +37,19 @@ func (id identity) label() string {
 	switch id.actorType {
 	case "token":
 		return "token:" + id.tokenName
+	case "device":
+		return "device:" + id.username
 	case "socket":
 		return "local-admin"
 	default:
 		return id.username
 	}
+}
+
+// isMachine reports whether the caller is automation (agent token or
+// device) rather than a person.
+func (id identity) isMachine() bool {
+	return id.device || id.tokenType == store.TokenTypeAgent
 }
 
 func (id identity) auditType() string {
@@ -76,8 +88,54 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 				}
 			}
 		}
+		if claim := r.Header.Get("X-Hush-Device"); claim != "" {
+			if id, ok := s.deviceIdentity(r, claim); ok {
+				next(w, r.WithContext(withIdentity(r.Context(), id)))
+				return
+			}
+			httpError(w, http.StatusUnauthorized, "device not authorized")
+			return
+		}
 		httpError(w, http.StatusUnauthorized, "authentication required")
 	}
+}
+
+// deviceIdentity validates a hostname claim. The device must be known,
+// trusted, unexpired, and the request must come from the IP the poller
+// last saw that hostname at. The raw connection address is used on
+// purpose: X-Forwarded-For is client-controlled and spoofable.
+func (s *Server) deviceIdentity(r *http.Request, claim string) (identity, bool) {
+	deny := func(reason string) (identity, bool) {
+		s.st.Audit(store.AuditEntry{ActorType: "device", Actor: "device:" + claim,
+			Action: "device.denied", IP: connIP(r), Detail: reason})
+		return identity{}, false
+	}
+	d, err := s.st.GetDevice(claim)
+	if err != nil {
+		return deny("unknown device")
+	}
+	if d.Status != store.DeviceTrusted {
+		return deny("device not trusted")
+	}
+	if d.ExpiresAt > 0 && d.ExpiresAt <= time.Now().Unix() {
+		return deny("device trust expired")
+	}
+	if ip := connIP(r); ip != d.IP {
+		return deny(fmt.Sprintf("claimed %s but connected from %s (expected %s)", d.Hostname, ip, d.IP))
+	}
+	return identity{
+		actorType: "device", username: d.Hostname, device: true,
+		scopes: d.Scopes, allowWrite: d.AllowWrite,
+	}, true
+}
+
+// connIP is the raw connection peer address, never X-Forwarded-For.
+func connIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // adminOnly rejects non-admin identities. Combined with the router only
@@ -95,9 +153,10 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // canReadSecret decides whether id may read the secret at path with the
-// given agent-access flag.
+// given agent-access flag. Machines (agent tokens and devices) need both
+// a matching scope and the per-secret flag.
 func canReadSecret(id identity, path string, agentAccess bool) bool {
-	if id.tokenType == store.TokenTypeAgent {
+	if id.isMachine() {
 		return agentAccess && auth.MatchAnyScope(id.scopes, path)
 	}
 	if id.isAdmin() {
