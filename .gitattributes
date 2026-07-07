@@ -1,0 +1,5 @@
+# Keep line endings consistent across platforms; the app runs in Linux
+# containers, so text files are LF.
+* text=auto eol=lf
+*.png binary
+*.svg text eol=lf
