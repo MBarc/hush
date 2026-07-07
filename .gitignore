@@ -4,9 +4,12 @@
 *.exe
 /hush
 
-# Web UI (arrives with the web milestone)
+# Web UI
 web/node_modules/
 web/dist/
+# Embedded build output (produced by the Docker build; .gitkeep is kept)
+internal/server/web/dist/*
+!internal/server/web/dist/.gitkeep
 
 # Local data and secrets
 /data/

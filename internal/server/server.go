@@ -69,7 +69,11 @@ func (s *Server) bootstrap() error {
 func (s *Server) routes() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
-	mux.HandleFunc("GET /", s.handleIndex)
+	if ui := uiHandler(); ui != nil {
+		mux.Handle("GET /", ui)
+	} else {
+		mux.HandleFunc("GET /", s.handleIndex) // placeholder before a UI build
+	}
 
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.auth(s.handleLogout))

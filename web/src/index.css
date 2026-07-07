@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-base text-primary font-sans antialiased;
+  }
+  ::selection {
+    background: rgba(143, 111, 255, 0.35);
+  }
+  /* Quiet, violet-tinted scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0D0B12;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2A2140;
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3A2F57;
+  }
+  :focus-visible {
+    outline: 2px solid #8F6FFF;
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-control px-3.5 py-2
+           text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-base hover:bg-accent-hover;
+  }
+  .btn-ghost {
+    @apply btn border border-border text-secondary hover:border-border-strong hover:text-primary;
+  }
+  .btn-danger {
+    @apply btn border border-border text-danger hover:border-danger hover:bg-danger/10;
+  }
+  .input {
+    @apply w-full rounded-control border border-border bg-raised px-3 py-2 text-sm
+           text-primary placeholder:text-muted focus:border-accent focus:outline-none;
+  }
+  .card {
+    @apply rounded-card border border-border bg-surface;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium;
+  }
+  .mono {
+    @apply font-mono;
+  }
+}

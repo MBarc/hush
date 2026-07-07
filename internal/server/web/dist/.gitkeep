@@ -1,0 +1,3 @@
+Placeholder so go:embed compiles before the web UI is built. The real
+build output is produced by the Docker build (web/dist -> here) and is
+gitignored.

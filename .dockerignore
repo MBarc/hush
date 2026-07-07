@@ -1,0 +1,8 @@
+# Never ship dev artifacts into the build context.
+web/node_modules
+web/dist
+internal/server/web/dist
+.git
+data
+*.exe
+hush
