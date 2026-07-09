@@ -360,6 +360,20 @@ func (c *Client) BlockDevice(hostname string) error {
 	return c.do("POST", "/api/v1/devices/"+url.PathEscape(hostname)+"/block", map[string]any{}, nil)
 }
 
+func (c *Client) GrantDevice(hostname, path string) error {
+	return c.do("POST", "/api/v1/grants/"+escapePath(path), map[string]string{"hostname": hostname}, nil)
+}
+
+func (c *Client) RevokeDeviceGrant(hostname, path string) error {
+	return c.do("DELETE", "/api/v1/grants/"+escapePath(path)+"?hostname="+url.QueryEscape(hostname), nil, nil)
+}
+
+func (c *Client) PathGrants(path string) ([]store.DeviceAccess, error) {
+	var out []store.DeviceAccess
+	err := c.do("GET", "/api/v1/grants/"+escapePath(path), nil, &out)
+	return out, err
+}
+
 func (c *Client) DeleteDevice(hostname string) error {
 	return c.do("DELETE", "/api/v1/devices/"+url.PathEscape(hostname), nil, nil)
 }

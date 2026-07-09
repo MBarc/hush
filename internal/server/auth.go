@@ -17,15 +17,16 @@ const sessionCookie = "hush_session"
 const sessionTTL = 7 * 24 * time.Hour
 
 type identity struct {
-	actorType  string // user | token | device | socket
-	username   string
-	role       string
-	tokenName  string
-	tokenType  string // user | agent (when actorType == token)
-	grants     []string
-	scopes     []string
-	device     bool
-	allowWrite bool // device may write within its scopes
+	actorType    string // user | token | device | socket
+	username     string
+	role         string
+	tokenName    string
+	tokenType    string   // user | agent (when actorType == token)
+	grants       []string // readonly user's folder grants
+	scopes       []string // agent token's path-glob scopes
+	device       bool
+	deviceGrants []string // folder/secret paths this device may read
+	allowWrite   bool     // device may write within its grants
 }
 
 func (id identity) isAdmin() bool {
@@ -114,18 +115,22 @@ func (s *Server) deviceIdentity(r *http.Request, claim string) (identity, bool) 
 	if err != nil {
 		return deny("unknown device")
 	}
-	if d.Status != store.DeviceTrusted {
-		return deny("device not trusted")
+	if d.Status == store.DeviceBlocked {
+		return deny("device blocked")
 	}
 	if d.ExpiresAt > 0 && d.ExpiresAt <= time.Now().Unix() {
-		return deny("device trust expired")
+		return deny("device access expired")
 	}
 	if ip := connIP(r); ip != d.IP {
 		return deny(fmt.Sprintf("claimed %s but connected from %s (expected %s)", d.Hostname, ip, d.IP))
 	}
+	grants, err := s.st.ListDeviceGrants(d.Hostname)
+	if err != nil {
+		return deny("could not load device grants")
+	}
 	return identity{
 		actorType: "device", username: d.Hostname, device: true,
-		scopes: d.Scopes, allowWrite: d.AllowWrite,
+		deviceGrants: grants, allowWrite: d.AllowWrite,
 	}, true
 }
 
@@ -152,11 +157,16 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// canReadSecret decides whether id may read the secret at path with the
-// given agent-access flag. Machines (agent tokens and devices) need both
-// a matching scope and the per-secret flag.
+// canReadSecret decides whether id may read the secret at path.
+//   - a device may read a path it is granted (directly or via an ancestor
+//     folder); the per-secret agent flag does not apply to devices.
+//   - an agent token needs the per-secret agent flag on and a matching scope.
+//   - admins read anything; readonly users read within their folder grants.
 func canReadSecret(id identity, path string, agentAccess bool) bool {
-	if id.isMachine() {
+	if id.device {
+		return grantCovers(id.deviceGrants, path)
+	}
+	if id.tokenType == store.TokenTypeAgent {
 		return agentAccess && auth.MatchAnyScope(id.scopes, path)
 	}
 	if id.isAdmin() {

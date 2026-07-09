@@ -66,6 +66,18 @@ func migrate(db *sql.DB) error {
 		}
 		version = 3
 	}
+	if version < 4 {
+		// Which devices may read which paths. A grant on a folder cascades
+		// to everything beneath it; a grant on a secret is just that secret.
+		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS device_grants (
+			device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+			path      TEXT NOT NULL,
+			UNIQUE (device_id, path)
+		)`); err != nil {
+			return err
+		}
+		version = 4
+	}
 	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
 		return err
 	}

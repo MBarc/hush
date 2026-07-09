@@ -247,10 +247,9 @@ func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 	}
 	id := mustIdentity(r)
 	path := r.PathValue("path")
-	isNew := false
 	if !id.isAdmin() {
-		// Only trusted devices with the write flag may mutate, and only
-		// inside their scopes on agent-accessible (or brand new) secrets.
+		// Only devices with write access may mutate, and only within a
+		// folder or secret they are granted.
 		if !id.device || !id.allowWrite {
 			httpError(w, http.StatusForbidden, "admin access required")
 			return
@@ -260,24 +259,13 @@ func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 			storeError(w, err)
 			return
 		}
-		if !auth.MatchAnyScope(id.scopes, normalized) {
-			s.audit(r, "secret.write.denied", normalized, "out of device scope")
+		if !grantCovers(id.deviceGrants, normalized) {
+			s.audit(r, "secret.write.denied", normalized, "device not granted")
 			httpError(w, http.StatusNotFound, "not found")
 			return
 		}
-		meta, err := s.st.GetSecretMeta(normalized)
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			isNew = true
-		case err != nil:
-			storeError(w, err)
-			return
-		case !meta.AgentAccess:
-			s.audit(r, "secret.write.denied", normalized, "agent access off")
-			httpError(w, http.StatusNotFound, "not found")
-			return
-		}
-		req.AgentAccess = nil // devices cannot change the flag
+		req.AgentAccess = nil // devices do not touch the agent-token flag
+		req.Credential = nil  // devices write plain values only
 	}
 	var version int
 	var err error
@@ -293,11 +281,6 @@ func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		storeError(w, err)
 		return
-	}
-	if isNew {
-		// Machine-created secrets stay machine-readable.
-		on := true
-		s.st.SetSecretMeta(path, &on, nil)
 	}
 	if req.AgentAccess != nil {
 		if err := s.st.SetSecretMeta(path, req.AgentAccess, nil); err != nil {

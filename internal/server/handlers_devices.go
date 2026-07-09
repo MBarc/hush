@@ -31,10 +31,6 @@ func (s *Server) handleDeviceTrust(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "bad request body")
 		return
 	}
-	if len(req.Scopes) == 0 {
-		httpError(w, http.StatusBadRequest, "trusted devices require explicit scopes")
-		return
-	}
 	var expiresAt int64
 	if req.TTLDays > 0 {
 		expiresAt = time.Now().Add(time.Duration(req.TTLDays) * 24 * time.Hour).Unix()
@@ -43,12 +39,58 @@ func (s *Server) handleDeviceTrust(w http.ResponseWriter, r *http.Request) {
 		storeError(w, err)
 		return
 	}
-	s.audit(r, "device.trust", "", fmt.Sprintf("hostname=%s scopes=%v allowWrite=%v ttlDays=%d",
-		hostname, req.Scopes, req.AllowWrite, req.TTLDays))
+	s.audit(r, "device.trust", "", fmt.Sprintf("hostname=%s allowWrite=%v ttlDays=%d",
+		hostname, req.AllowWrite, req.TTLDays))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"hostname": hostname, "status": store.DeviceTrusted,
-		"scopes": req.Scopes, "allowWrite": req.AllowWrite, "expiresAt": expiresAt,
+		"allowWrite": req.AllowWrite, "expiresAt": expiresAt,
 	})
+}
+
+// --- device access grants (managed from the folder/secret side) ---
+
+func (s *Server) handlePathGrants(w http.ResponseWriter, r *http.Request) {
+	devices, err := s.st.DevicesForPath(r.PathValue("path"))
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	if devices == nil {
+		devices = []store.DeviceAccess{}
+	}
+	writeJSON(w, http.StatusOK, devices)
+}
+
+func (s *Server) handlePathGrantAdd(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	var req struct {
+		Hostname string `json:"hostname"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad request body")
+		return
+	}
+	if err := s.st.GrantDevice(req.Hostname, path); err != nil {
+		storeError(w, err)
+		return
+	}
+	s.audit(r, "device.grant", path, "hostname="+req.Hostname)
+	writeJSON(w, http.StatusCreated, map[string]string{"hostname": req.Hostname, "path": path})
+}
+
+func (s *Server) handlePathGrantRemove(w http.ResponseWriter, r *http.Request) {
+	path := r.PathValue("path")
+	hostname := r.URL.Query().Get("hostname")
+	if hostname == "" {
+		httpError(w, http.StatusBadRequest, "hostname query parameter required")
+		return
+	}
+	if err := s.st.RevokeDeviceGrant(hostname, path); err != nil {
+		storeError(w, err)
+		return
+	}
+	s.audit(r, "device.revoke", path, "hostname="+hostname)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
 func (s *Server) handleDeviceName(w http.ResponseWriter, r *http.Request) {

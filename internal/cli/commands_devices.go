@@ -38,43 +38,75 @@ func deviceCmd() *cobra.Command {
 				}
 				rows = append(rows, []string{
 					deviceName(d.Label, d.Hostname, d.IP), d.IP, d.Status + write,
-					strings.Join(d.Scopes, ","), ts(d.LastSeen), ts(d.ExpiresAt),
+					strings.Join(d.Grants, ", "), ts(d.LastSeen), ts(d.ExpiresAt),
 				})
 			}
-			table([]string{"NAME", "IP", "STATUS", "SCOPES", "LAST SEEN", "EXPIRES"}, rows)
+			table([]string{"NAME", "IP", "STATUS", "GRANTS", "LAST SEEN", "EXPIRES"}, rows)
 			return nil
 		},
 	}
 
-	var scopes []string
 	var allowWrite bool
 	var ttlDays int
 	trust := &cobra.Command{
 		Use:   "trust <hostname>",
-		Short: "allow a device to fetch secrets by hostname",
+		Short: "mark a device trusted (grant it paths with 'device grant')",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := client()
 			if err != nil {
 				return err
 			}
-			if err := c.TrustDevice(args[0], scopes, allowWrite, ttlDays); err != nil {
+			if err := c.TrustDevice(args[0], nil, allowWrite, ttlDays); err != nil {
 				return err
 			}
-			fmt.Printf("device %s trusted for %s", args[0], strings.Join(scopes, ", "))
+			fmt.Printf("device %s trusted", args[0])
 			if allowWrite {
-				fmt.Print(" (read and write)")
+				fmt.Print(" (writes allowed within its grants)")
 			}
 			if ttlDays > 0 {
-				fmt.Printf(" for %d days", ttlDays)
+				fmt.Printf(", expires in %d days", ttlDays)
 			}
 			fmt.Println()
 			return nil
 		},
 	}
-	trust.Flags().StringArrayVar(&scopes, "scope", nil, "path scope, like infra/nas/* (repeatable, required)")
-	trust.Flags().BoolVar(&allowWrite, "allow-write", false, "also allow writes within scope")
-	trust.Flags().IntVar(&ttlDays, "ttl-days", 0, "trust expires after N days (0 = never)")
+	trust.Flags().BoolVar(&allowWrite, "allow-write", false, "allow writes within granted paths")
+	trust.Flags().IntVar(&ttlDays, "ttl-days", 0, "access expires after N days (0 = never)")
+
+	grant := &cobra.Command{
+		Use:   "grant <hostname> <folder-or-secret>",
+		Short: "allow a device to read a folder (cascading) or a secret",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			if err := c.GrantDevice(args[0], args[1]); err != nil {
+				return err
+			}
+			fmt.Printf("%s granted access to %s\n", args[0], args[1])
+			return nil
+		},
+	}
+
+	revoke := &cobra.Command{
+		Use:   "revoke <hostname> <folder-or-secret>",
+		Short: "revoke a device's grant on a folder or secret",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			if err := c.RevokeDeviceGrant(args[0], args[1]); err != nil {
+				return err
+			}
+			fmt.Printf("%s revoked from %s\n", args[1], args[0])
+			return nil
+		},
+	}
 
 	block := &cobra.Command{
 		Use:   "block <hostname>",
@@ -131,7 +163,7 @@ func deviceCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(ls, name, trust, block, rm)
+	root.AddCommand(ls, name, trust, grant, revoke, block, rm)
 	return root
 }
 

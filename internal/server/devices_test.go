@@ -4,26 +4,27 @@ import (
 	"testing"
 )
 
-// deviceEnv seeds a device the way the poller would, then trusts it.
+// deviceEnv seeds secrets, a device, trusts it, and grants it the
+// "infra/nas" folder (which cascades to everything beneath).
 func deviceEnv(t *testing.T, ip string, allowWrite bool) *testEnv {
 	t.Helper()
 	e := newTestEnv(t)
 	e.login("admin", "test-admin-password")
-	e.call("PUT", "/api/v1/secrets/infra/nas/backup-key", "cookie:admin",
-		map[string]any{"value": "backup-secret", "agentAccess": true})
-	e.call("PUT", "/api/v1/secrets/infra/nas/private", "cookie:admin",
-		map[string]any{"value": "humans-only"}) // agent access off
-	e.call("PUT", "/api/v1/secrets/media/plex/token", "cookie:admin",
-		map[string]any{"value": "plex", "agentAccess": true})
+	e.call("PUT", "/api/v1/secrets/infra/nas/backup-key", "cookie:admin", map[string]any{"value": "backup-secret"})
+	e.call("PUT", "/api/v1/secrets/infra/nas/private", "cookie:admin", map[string]any{"value": "was-humans-only"})
+	e.call("PUT", "/api/v1/secrets/media/plex/token", "cookie:admin", map[string]any{"value": "plex"})
 
-	// Seed the inventory as the poller would (reverse DNS gave a FQDN).
 	if err := e.st.UpsertDevice("nas01.lan", ip); err != nil {
 		t.Fatal(err)
 	}
 	code, out := e.call("POST", "/api/v1/devices/nas01.lan/trust", "cookie:admin",
-		map[string]any{"scopes": []string{"infra/nas/*"}, "allowWrite": allowWrite})
+		map[string]any{"allowWrite": allowWrite})
 	if code != 200 {
 		t.Fatalf("trust: %d %+v", code, out)
+	}
+	code, out = e.call("POST", "/api/v1/grants/infra/nas", "cookie:admin", map[string]any{"hostname": "nas01.lan"})
+	if code != 201 {
+		t.Fatalf("grant folder: %d %+v", code, out)
 	}
 	return e
 }
@@ -33,38 +34,34 @@ func (e *testEnv) deviceCall(method, path, hostname string, body any) (int, map[
 	return e.callWithHeader(method, path, "X-Hush-Device", hostname, body)
 }
 
-func TestDeviceAccess(t *testing.T) {
-	// httptest connections come from 127.0.0.1, so a device registered at
-	// 127.0.0.1 passes the source-IP check.
+func TestDeviceAccessByGrant(t *testing.T) {
 	e := deviceEnv(t, "127.0.0.1", false)
 
-	// Short-name claim for a FQDN inventory entry, in scope, flagged: allowed.
+	// Folder grant cascades: both secrets under infra/nas are readable,
+	// including the one with no agent flag (the flag no longer gates devices).
 	code, out := e.deviceCall("GET", "/api/v1/secrets/infra/nas/backup-key", "nas01", nil)
 	if code != 200 || out["value"] != "backup-secret" {
-		t.Fatalf("device read: %d %+v", code, out)
+		t.Fatalf("granted read: %d %+v", code, out)
 	}
-	// In scope but agent-access off: hidden.
-	code, _ = e.deviceCall("GET", "/api/v1/secrets/infra/nas/private", "nas01", nil)
-	if code != 404 {
-		t.Fatalf("flag-off read expected 404, got %d", code)
+	code, out = e.deviceCall("GET", "/api/v1/secrets/infra/nas/private", "nas01", nil)
+	if code != 200 || out["value"] != "was-humans-only" {
+		t.Fatalf("cascade read: %d %+v", code, out)
 	}
-	// Out of scope: hidden.
+	// Not granted: hidden.
 	code, _ = e.deviceCall("GET", "/api/v1/secrets/media/plex/token", "nas01", nil)
 	if code != 404 {
-		t.Fatalf("out-of-scope read expected 404, got %d", code)
+		t.Fatalf("ungranted read expected 404, got %d", code)
 	}
 	// Read-only device cannot write.
-	code, _ = e.deviceCall("PUT", "/api/v1/secrets/infra/nas/backup-key", "nas01",
-		map[string]any{"value": "overwrite"})
+	code, _ = e.deviceCall("PUT", "/api/v1/secrets/infra/nas/backup-key", "nas01", map[string]any{"value": "x"})
 	if code != 403 {
-		t.Fatalf("read-only device write expected 403, got %d", code)
+		t.Fatalf("read-only write expected 403, got %d", code)
 	}
-	// Unknown hostname: unauthorized.
+	// Unknown device, browsing, and admin endpoints are all rejected.
 	code, _ = e.deviceCall("GET", "/api/v1/secrets/infra/nas/backup-key", "impostor", nil)
 	if code != 401 {
 		t.Fatalf("unknown device expected 401, got %d", code)
 	}
-	// Devices cannot browse or use admin endpoints.
 	code, _ = e.deviceCall("GET", "/api/v1/tree/", "nas01", nil)
 	if code != 403 {
 		t.Fatalf("device tree expected 403, got %d", code)
@@ -75,27 +72,58 @@ func TestDeviceAccess(t *testing.T) {
 	}
 }
 
+func TestDeviceIndividualSecretGrant(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/dns/cf", "cookie:admin", map[string]any{"value": "cf"})
+	e.call("PUT", "/api/v1/secrets/infra/dns/hz", "cookie:admin", map[string]any{"value": "hz"})
+	e.st.UpsertDevice("box.lan", "127.0.0.1")
+	e.call("POST", "/api/v1/devices/box.lan/trust", "cookie:admin", map[string]any{})
+
+	// Grant a single secret, not the folder.
+	code, _ := e.call("POST", "/api/v1/grants/infra/dns/cf", "cookie:admin", map[string]any{"hostname": "box.lan"})
+	if code != 201 {
+		t.Fatalf("grant secret: %d", code)
+	}
+	code, out := e.deviceCall("GET", "/api/v1/secrets/infra/dns/cf", "box", nil)
+	if code != 200 || out["value"] != "cf" {
+		t.Fatalf("granted secret read: %d %+v", code, out)
+	}
+	// Sibling in the same folder is NOT covered by a single-secret grant.
+	code, _ = e.deviceCall("GET", "/api/v1/secrets/infra/dns/hz", "box", nil)
+	if code != 404 {
+		t.Fatalf("sibling read expected 404, got %d", code)
+	}
+
+	// Resource view lists the device, and revoke removes access.
+	code, list := e.call("GET", "/api/v1/grants/infra/dns/cf", "cookie:admin", nil)
+	_ = list
+	if code != 200 {
+		t.Fatalf("grants list: %d", code)
+	}
+	code, _ = e.call("DELETE", "/api/v1/grants/infra/dns/cf?hostname=box.lan", "cookie:admin", nil)
+	if code != 200 {
+		t.Fatalf("revoke: %d", code)
+	}
+	code, _ = e.deviceCall("GET", "/api/v1/secrets/infra/dns/cf", "box", nil)
+	if code != 404 {
+		t.Fatalf("after revoke expected 404, got %d", code)
+	}
+}
+
 func TestDeviceNaming(t *testing.T) {
 	e := deviceEnv(t, "127.0.0.1", false)
 
-	// Admin gives the device a friendly name.
-	code, _ := e.call("PATCH", "/api/v1/devices/nas01.lan", "cookie:admin",
-		map[string]any{"label": "backup-box"})
+	code, _ := e.call("PATCH", "/api/v1/devices/nas01.lan", "cookie:admin", map[string]any{"label": "backup-box"})
 	if code != 200 {
 		t.Fatalf("name device: %d", code)
 	}
-	d, err := e.st.GetDevice("nas01.lan")
-	if err != nil || d.Label != "backup-box" {
-		t.Fatalf("label not persisted: %+v err=%v", d, err)
-	}
-
-	// The device can now authenticate by that friendly name.
+	// The device authenticates by its friendly name and reads its grant.
 	code, out := e.deviceCall("GET", "/api/v1/secrets/infra/nas/backup-key", "backup-box", nil)
 	if code != 200 || out["value"] != "backup-secret" {
 		t.Fatalf("auth by label: %d %+v", code, out)
 	}
-
-	// Readonly users cannot rename devices.
+	// Readonly users cannot rename.
 	e.call("POST", "/api/v1/users", "cookie:admin",
 		map[string]any{"username": "ro2", "password": "ro2-pass-xyz", "role": "readonly"})
 	e.login("ro2", "ro2-pass-xyz")
@@ -106,14 +134,13 @@ func TestDeviceNaming(t *testing.T) {
 }
 
 func TestDeviceSpoofedHostnameDenied(t *testing.T) {
-	// Device inventory says nas01 lives at 10.9.9.9; the request will come
-	// from 127.0.0.1, so the claim must be rejected.
+	// Inventory says nas01 lives at 10.9.9.9; the request comes from
+	// 127.0.0.1, so the claim is rejected before any grant check.
 	e := deviceEnv(t, "10.9.9.9", false)
 	code, _ := e.deviceCall("GET", "/api/v1/secrets/infra/nas/backup-key", "nas01", nil)
 	if code != 401 {
 		t.Fatalf("spoofed claim expected 401, got %d", code)
 	}
-	// And the denial is audited with the mismatch.
 	entries, err := e.st.AuditList(10, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -129,36 +156,26 @@ func TestDeviceSpoofedHostnameDenied(t *testing.T) {
 	}
 }
 
-func TestDeviceWrite(t *testing.T) {
+func TestDeviceWriteWithinGrant(t *testing.T) {
 	e := deviceEnv(t, "127.0.0.1", true)
 
-	// Write to an existing agent-accessible secret in scope: allowed.
-	code, out := e.deviceCall("PUT", "/api/v1/secrets/infra/nas/backup-key", "nas01",
-		map[string]any{"value": "rotated-by-device"})
+	// Write and create within the granted folder.
+	code, _ := e.deviceCall("PUT", "/api/v1/secrets/infra/nas/backup-key", "nas01", map[string]any{"value": "rotated"})
 	if code != 200 {
-		t.Fatalf("device write: %d %+v", code, out)
+		t.Fatalf("device write: %d", code)
 	}
-	// New secret in scope: allowed and auto-flagged agent-accessible.
-	code, _ = e.deviceCall("PUT", "/api/v1/secrets/infra/nas/new-cert", "nas01",
-		map[string]any{"value": "cert"})
+	code, _ = e.deviceCall("PUT", "/api/v1/secrets/infra/nas/new-cert", "nas01", map[string]any{"value": "cert"})
 	if code != 200 {
 		t.Fatalf("device create: %d", code)
 	}
-	code, out = e.deviceCall("GET", "/api/v1/secrets/infra/nas/new-cert", "nas01", nil)
+	code, out := e.deviceCall("GET", "/api/v1/secrets/infra/nas/new-cert", "nas01", nil)
 	if code != 200 || out["value"] != "cert" {
 		t.Fatalf("device read-back: %d %+v", code, out)
 	}
-	// Existing human-only secret stays hidden even for writes.
-	code, _ = e.deviceCall("PUT", "/api/v1/secrets/infra/nas/private", "nas01",
-		map[string]any{"value": "x"})
+	// Write outside the grant is hidden.
+	code, _ = e.deviceCall("PUT", "/api/v1/secrets/media/plex/token", "nas01", map[string]any{"value": "x"})
 	if code != 404 {
-		t.Fatalf("device write to flag-off expected 404, got %d", code)
-	}
-	// Out-of-scope write: hidden.
-	code, _ = e.deviceCall("PUT", "/api/v1/secrets/media/plex/token", "nas01",
-		map[string]any{"value": "x"})
-	if code != 404 {
-		t.Fatalf("device write out of scope expected 404, got %d", code)
+		t.Fatalf("ungranted write expected 404, got %d", code)
 	}
 }
 
