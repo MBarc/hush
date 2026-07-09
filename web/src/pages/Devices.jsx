@@ -29,7 +29,7 @@ export default function Devices() {
 
   return (
     <>
-      <PageHeader title="Devices" subtitle="Machines on your network, identified by hostname" />
+      <PageHeader title="Devices" subtitle="Machines on your network. Click a name to label one." />
       <div className="p-8">
         <div className="mb-5 rounded-card border border-border bg-surface px-4 py-3 text-sm text-secondary">
           Hush verifies a claimed hostname against the source IP it was last seen at. Trust a device
@@ -63,11 +63,7 @@ export default function Devices() {
                 {devices.map((d) => (
                   <tr key={d.hostname}>
                     <td className="px-4 py-3 mono">
-                      {d.hostname === d.ip ? (
-                        <span className="text-muted">unnamed</span>
-                      ) : (
-                        <span className="text-primary">{d.hostname}</span>
-                      )}
+                      <NameCell d={d} onSaved={load} />
                     </td>
                     <td className="px-4 py-3 mono text-secondary">{d.ip}</td>
                     <td className="px-4 py-3">
@@ -115,6 +111,74 @@ export default function Devices() {
         />
       )}
     </>
+  )
+}
+
+// NameCell shows a device's friendly label (or its real hostname, or
+// "unnamed") and turns into an inline editor on click.
+function NameCell({ d, onSaved }) {
+  const toast = useToast()
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(d.label || '')
+  const display = d.label || (d.hostname !== d.ip ? d.hostname : '')
+
+  const save = async () => {
+    const next = val.trim()
+    if (next === (d.label || '')) {
+      setEditing(false)
+      return
+    }
+    try {
+      await api.nameDevice(d.hostname, next)
+      setEditing(false)
+      onSaved()
+      toast(next ? `Named ${next}` : 'Name cleared', 'success')
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        className="input !w-40 !px-2 !py-1 mono"
+        value={val}
+        placeholder="name this device"
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') save()
+          if (e.key === 'Escape') {
+            setVal(d.label || '')
+            setEditing(false)
+          }
+        }}
+      />
+    )
+  }
+
+  return (
+    <button
+      className="group inline-flex items-center gap-1.5 text-left"
+      title="Click to rename"
+      onClick={() => {
+        setVal(d.label || '')
+        setEditing(true)
+      }}
+    >
+      {display ? (
+        <span className="text-primary">{display}</span>
+      ) : (
+        <span className="text-muted">unnamed</span>
+      )}
+      <svg
+        className="text-muted opacity-0 transition-opacity group-hover:opacity-100"
+        width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      >
+        <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+      </svg>
+    </button>
   )
 }
 

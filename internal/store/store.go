@@ -44,14 +44,24 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version >= 1 {
-		return nil
+	if version < 1 {
+		if _, err := db.Exec(schemaV1); err != nil {
+			return err
+		}
+		version = 1
 	}
-	if _, err := db.Exec(schemaV1); err != nil {
+	if version < 2 {
+		// User-assigned friendly name for a device, shown instead of the
+		// bare IP/hostname the poller discovered.
+		if _, err := db.Exec(`ALTER TABLE devices ADD COLUMN label TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		version = 2
+	}
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
 		return err
 	}
-	_, err := db.Exec("PRAGMA user_version = 1")
-	return err
+	return nil
 }
 
 const schemaV1 = `

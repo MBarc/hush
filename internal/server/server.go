@@ -102,6 +102,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("DELETE /api/v1/users/{name}/grants/{path...}", s.auth(s.adminOnly(s.handleGrantRemove)))
 
 	mux.HandleFunc("GET /api/v1/devices", s.auth(s.adminOnly(s.handleDeviceList)))
+	mux.HandleFunc("PATCH /api/v1/devices/{hostname}", s.auth(s.adminOnly(s.handleDeviceName)))
 	mux.HandleFunc("POST /api/v1/devices/{hostname}/trust", s.auth(s.adminOnly(s.handleDeviceTrust)))
 	mux.HandleFunc("POST /api/v1/devices/{hostname}/block", s.auth(s.adminOnly(s.handleDeviceBlock)))
 	mux.HandleFunc("DELETE /api/v1/devices/{hostname}", s.auth(s.adminOnly(s.handleDeviceDelete)))

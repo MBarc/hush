@@ -333,6 +333,11 @@ func (c *Client) ListDevices() ([]store.Device, error) {
 	return out, err
 }
 
+func (c *Client) NameDevice(hostname, label string) error {
+	return c.do("PATCH", "/api/v1/devices/"+url.PathEscape(hostname),
+		map[string]string{"label": label}, nil)
+}
+
 func (c *Client) TrustDevice(hostname string, scopes []string, allowWrite bool, ttlDays int) error {
 	return c.do("POST", "/api/v1/devices/"+url.PathEscape(hostname)+"/trust",
 		map[string]any{"scopes": scopes, "allowWrite": allowWrite, "ttlDays": ttlDays}, nil)

@@ -75,6 +75,36 @@ func TestDeviceAccess(t *testing.T) {
 	}
 }
 
+func TestDeviceNaming(t *testing.T) {
+	e := deviceEnv(t, "127.0.0.1", false)
+
+	// Admin gives the device a friendly name.
+	code, _ := e.call("PATCH", "/api/v1/devices/nas01.lan", "cookie:admin",
+		map[string]any{"label": "backup-box"})
+	if code != 200 {
+		t.Fatalf("name device: %d", code)
+	}
+	d, err := e.st.GetDevice("nas01.lan")
+	if err != nil || d.Label != "backup-box" {
+		t.Fatalf("label not persisted: %+v err=%v", d, err)
+	}
+
+	// The device can now authenticate by that friendly name.
+	code, out := e.deviceCall("GET", "/api/v1/secrets/infra/nas/backup-key", "backup-box", nil)
+	if code != 200 || out["value"] != "backup-secret" {
+		t.Fatalf("auth by label: %d %+v", code, out)
+	}
+
+	// Readonly users cannot rename devices.
+	e.call("POST", "/api/v1/users", "cookie:admin",
+		map[string]any{"username": "ro2", "password": "ro2-pass-xyz", "role": "readonly"})
+	e.login("ro2", "ro2-pass-xyz")
+	code, _ = e.call("PATCH", "/api/v1/devices/nas01.lan", "cookie:ro2", map[string]any{"label": "x"})
+	if code != 403 {
+		t.Fatalf("readonly rename expected 403, got %d", code)
+	}
+}
+
 func TestDeviceSpoofedHostnameDenied(t *testing.T) {
 	// Device inventory says nas01 lives at 10.9.9.9; the request will come
 	// from 127.0.0.1, so the claim must be rejected.

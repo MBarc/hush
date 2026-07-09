@@ -36,13 +36,8 @@ func deviceCmd() *cobra.Command {
 				if d.AllowWrite {
 					write = "+write"
 				}
-				// No reverse-DNS name: identity is the IP, so don't repeat it.
-				name := d.Hostname
-				if name == d.IP {
-					name = "-"
-				}
 				rows = append(rows, []string{
-					name, d.IP, d.Status + write,
+					deviceName(d.Label, d.Hostname, d.IP), d.IP, d.Status + write,
 					strings.Join(d.Scopes, ","), ts(d.LastSeen), ts(d.ExpiresAt),
 				})
 			}
@@ -115,6 +110,39 @@ func deviceCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(ls, trust, block, rm)
+	name := &cobra.Command{
+		Use:   "name <hostname-or-ip> <label>",
+		Short: "give a device a friendly name (use \"\" to clear)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			if err := c.NameDevice(args[0], args[1]); err != nil {
+				return err
+			}
+			if args[1] == "" {
+				fmt.Printf("cleared name for %s\n", args[0])
+			} else {
+				fmt.Printf("%s is now named %q\n", args[0], args[1])
+			}
+			return nil
+		},
+	}
+
+	root.AddCommand(ls, name, trust, block, rm)
 	return root
+}
+
+// deviceName picks what to show: the friendly label, else a real
+// reverse-DNS hostname, else a dash (hostname is just the IP).
+func deviceName(label, hostname, ip string) string {
+	if label != "" {
+		return label
+	}
+	if hostname != ip {
+		return hostname
+	}
+	return "-"
 }

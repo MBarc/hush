@@ -51,6 +51,23 @@ func (s *Server) handleDeviceTrust(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleDeviceName(w http.ResponseWriter, r *http.Request) {
+	hostname := r.PathValue("hostname")
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad request body")
+		return
+	}
+	if err := s.st.SetDeviceLabel(hostname, req.Label); err != nil {
+		storeError(w, err)
+		return
+	}
+	s.audit(r, "device.name", "", fmt.Sprintf("hostname=%s label=%q", hostname, req.Label))
+	writeJSON(w, http.StatusOK, map[string]string{"hostname": hostname, "label": req.Label})
+}
+
 func (s *Server) handleDeviceBlock(w http.ResponseWriter, r *http.Request) {
 	hostname := r.PathValue("hostname")
 	if err := s.st.SetDeviceTrust(hostname, store.DeviceBlocked, nil, false, 0); err != nil {

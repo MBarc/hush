@@ -16,6 +16,7 @@ const (
 
 type Device struct {
 	Hostname   string   `json:"hostname"`
+	Label      string   `json:"label"`
 	IP         string   `json:"ip"`
 	FirstSeen  int64    `json:"firstSeen"`
 	LastSeen   int64    `json:"lastSeen"`
@@ -24,6 +25,8 @@ type Device struct {
 	AllowWrite bool     `json:"allowWrite"`
 	ExpiresAt  int64    `json:"expiresAt,omitempty"`
 }
+
+const deviceCols = `hostname, ip, first_seen, last_seen, status, scopes, allow_write, expires_at, label`
 
 // UpsertDevice records a poller sighting: new devices start as
 // discovered; known devices refresh their ip and last_seen.
@@ -45,9 +48,7 @@ func (s *Store) UpsertDevice(hostname, ip string) error {
 // the stored name (usually a FQDN from reverse DNS) or its first label.
 func (s *Store) GetDevice(claimed string) (Device, error) {
 	claimed = normalizeHostname(claimed)
-	rows, err := s.db.Query(
-		`SELECT hostname, ip, first_seen, last_seen, status, scopes, allow_write, expires_at
-		 FROM devices`)
+	rows, err := s.db.Query(`SELECT ` + deviceCols + ` FROM devices`)
 	if err != nil {
 		return Device{}, err
 	}
@@ -57,7 +58,10 @@ func (s *Store) GetDevice(claimed string) (Device, error) {
 		if err != nil {
 			return Device{}, err
 		}
-		if d.Hostname == claimed || strings.SplitN(d.Hostname, ".", 2)[0] == claimed {
+		// A claim matches the discovered hostname, its first label, or the
+		// admin-assigned friendly name.
+		if d.Hostname == claimed || strings.SplitN(d.Hostname, ".", 2)[0] == claimed ||
+			(d.Label != "" && strings.EqualFold(d.Label, claimed)) {
 			return d, nil
 		}
 	}
@@ -69,9 +73,7 @@ func (s *Store) GetDevice(claimed string) (Device, error) {
 
 // ListDevices returns the device inventory, most recently seen first.
 func (s *Store) ListDevices() ([]Device, error) {
-	rows, err := s.db.Query(
-		`SELECT hostname, ip, first_seen, last_seen, status, scopes, allow_write, expires_at
-		 FROM devices ORDER BY last_seen DESC`)
+	rows, err := s.db.Query(`SELECT ` + deviceCols + ` FROM devices ORDER BY last_seen DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +111,19 @@ func (s *Store) SetDeviceTrust(hostname, status string, scopes []string, allowWr
 	return nil
 }
 
+// SetDeviceLabel assigns (or clears, with "") a device's friendly name.
+func (s *Store) SetDeviceLabel(hostname, label string) error {
+	res, err := s.db.Exec(`UPDATE devices SET label = ? WHERE hostname = ?`,
+		strings.TrimSpace(label), normalizeHostname(hostname))
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // DeleteDevice forgets a device entirely.
 func (s *Store) DeleteDevice(hostname string) error {
 	res, err := s.db.Exec(`DELETE FROM devices WHERE hostname = ?`, normalizeHostname(hostname))
@@ -126,7 +141,7 @@ func scanDevice(rows *sql.Rows) (Device, error) {
 	var scopesJSON string
 	var exp sql.NullInt64
 	if err := rows.Scan(&d.Hostname, &d.IP, &d.FirstSeen, &d.LastSeen,
-		&d.Status, &scopesJSON, &d.AllowWrite, &exp); err != nil {
+		&d.Status, &scopesJSON, &d.AllowWrite, &exp, &d.Label); err != nil {
 		return Device{}, err
 	}
 	d.ExpiresAt = exp.Int64

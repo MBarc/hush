@@ -59,6 +59,8 @@ export const api = {
     req('DELETE', '/api/v1/users/' + encodeURIComponent(name) + '/grants/' + enc(path)),
 
   devices: () => req('GET', '/api/v1/devices'),
+  nameDevice: (hostname, label) =>
+    req('PATCH', '/api/v1/devices/' + encodeURIComponent(hostname), { label }),
   trustDevice: (hostname, body) =>
     req('POST', '/api/v1/devices/' + encodeURIComponent(hostname) + '/trust', body),
   blockDevice: (hostname) =>
