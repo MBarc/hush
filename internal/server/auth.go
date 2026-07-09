@@ -175,10 +175,12 @@ func canReadSecret(id identity, path string, agentAccess bool) bool {
 	return grantCovers(id.grants, path)
 }
 
-// grantCovers reports whether any granted folder is an ancestor of path.
+// grantCovers reports whether any grant covers path: an empty grant is the
+// vault root and covers everything, otherwise the grant must equal path or
+// be an ancestor folder of it.
 func grantCovers(grants []string, path string) bool {
 	for _, g := range grants {
-		if path == g || strings.HasPrefix(path, g+"/") {
+		if g == "" || path == g || strings.HasPrefix(path, g+"/") {
 			return true
 		}
 	}

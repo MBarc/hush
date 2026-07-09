@@ -40,7 +40,7 @@ export default function Browse() {
       <div className="flex h-16 items-center justify-between border-b border-border px-8">
         <VaultTabs active="secrets" />
         <div className="flex items-center gap-2">
-          {me.admin && path && (
+          {me.admin && (
             <button className="btn-ghost" onClick={() => setFolderDrawer(true)}>
               Folder access
             </button>
@@ -339,8 +339,9 @@ function FolderDrawer({ path, onClose }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  const name = path.split('/').pop()
-  const parent = path.split('/').slice(0, -1).join('/')
+  const isRoot = !path
+  const name = isRoot ? 'vault' : path.split('/').pop()
+  const parent = isRoot ? '' : path.split('/').slice(0, -1).join('/')
   return (
     <div className="fixed inset-0 z-30 flex justify-end bg-base/60 backdrop-blur-sm" onMouseDown={onClose}>
       <div
@@ -349,7 +350,7 @@ function FolderDrawer({ path, onClose }) {
       >
         <div className="flex items-start justify-between border-b border-border p-6">
           <div>
-            <p className="mono text-xs text-muted">{parent ? parent + '/' : 'vault /'}</p>
+            {parent && <p className="mono text-xs text-muted">{parent}/</p>}
             <h2 className="mono text-xl font-semibold text-primary">{name}/</h2>
           </div>
           <button onClick={onClose} className="text-muted hover:text-primary" aria-label="Close">
@@ -360,7 +361,9 @@ function FolderDrawer({ path, onClose }) {
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
           <p className="text-sm text-secondary">
-            Devices granted on this folder can read every secret inside it and its subfolders.
+            {isRoot
+              ? 'Devices granted at the vault root can read every secret in the entire vault.'
+              : 'Devices granted on this folder can read every secret inside it and its subfolders.'}
           </p>
           <DeviceAccess path={path} />
         </div>

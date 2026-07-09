@@ -111,6 +111,42 @@ func TestDeviceIndividualSecretGrant(t *testing.T) {
 	}
 }
 
+func TestDeviceRootGrant(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/dns/cf", "cookie:admin", map[string]any{"value": "cf"})
+	e.call("PUT", "/api/v1/secrets/media/plex/tok", "cookie:admin", map[string]any{"value": "plex"})
+	e.st.UpsertDevice("super.lan", "127.0.0.1")
+	e.call("POST", "/api/v1/devices/super.lan/trust", "cookie:admin", map[string]any{})
+
+	// Grant at the vault root (empty path) covers everything.
+	code, out := e.call("POST", "/api/v1/grants/", "cookie:admin", map[string]any{"hostname": "super.lan"})
+	if code != 201 {
+		t.Fatalf("root grant: %d %+v", code, out)
+	}
+	for _, p := range []string{"infra/dns/cf", "media/plex/tok"} {
+		code, _ := e.deviceCall("GET", "/api/v1/secrets/"+p, "super", nil)
+		if code != 200 {
+			t.Fatalf("root-granted read of %s: %d", p, code)
+		}
+	}
+
+	// A nested secret shows the device as inherited from the root ("/").
+	acc, err := e.st.DevicesForPath("infra/dns/cf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range acc {
+		if a.Hostname == "super.lan" && a.Via == "/" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected super.lan inherited via /, got %+v", acc)
+	}
+}
+
 func TestDeviceNaming(t *testing.T) {
 	e := deviceEnv(t, "127.0.0.1", false)
 

@@ -166,12 +166,13 @@ func (s *Store) GrantDevice(hostname, path string) error {
 	if err != nil {
 		return err
 	}
-	if path == "" {
-		return fmt.Errorf("%w: a grant needs a folder or secret path", ErrInvalidPath)
-	}
-	if ok, _ := s.FolderExists(path); !ok {
-		if _, err := s.GetSecretMeta(path); err != nil {
-			return fmt.Errorf("%w: no folder or secret at %q", ErrNotFound, path)
+	// An empty path is the vault root: a grant there covers everything.
+	// Any other path must be an existing folder or secret.
+	if path != "" {
+		if ok, _ := s.FolderExists(path); !ok {
+			if _, err := s.GetSecretMeta(path); err != nil {
+				return fmt.Errorf("%w: no folder or secret at %q", ErrNotFound, path)
+			}
 		}
 	}
 	var deviceID int64
@@ -237,9 +238,6 @@ func (s *Store) DevicesForPath(path string) ([]DeviceAccess, error) {
 	if err != nil {
 		return nil, err
 	}
-	if path == "" {
-		return nil, nil
-	}
 	covers := coveringPaths(path)
 	args := make([]any, len(covers))
 	for i, c := range covers {
@@ -261,18 +259,26 @@ func (s *Store) DevicesForPath(path string) ([]DeviceAccess, error) {
 			return nil, err
 		}
 		if grantPath != path {
+			// Inherited from an ancestor; "/" marks a vault-root grant.
 			a.Via = grantPath
+			if a.Via == "" {
+				a.Via = "/"
+			}
 		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
 }
 
-// coveringPaths returns path plus its ancestor folder paths:
-// "a/b/c" -> ["a", "a/b", "a/b/c"].
+// coveringPaths returns the vault root plus path and all its ancestor
+// folders: "a/b/c" -> ["", "a", "a/b", "a/b/c"]. A root ("") grant covers
+// everything.
 func coveringPaths(path string) []string {
+	out := []string{""}
+	if path == "" {
+		return out
+	}
 	segs := strings.Split(path, "/")
-	out := make([]string, 0, len(segs))
 	for i := 1; i <= len(segs); i++ {
 		out = append(out, strings.Join(segs[:i], "/"))
 	}

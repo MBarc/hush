@@ -83,7 +83,11 @@ export function DeviceAccess({ path }) {
           >
             <div className="min-w-0">
               <span className="mono text-sm text-primary">{g.label || g.hostname}</span>
-              {g.via && <span className="ml-2 text-xs text-muted">inherited from {g.via}/</span>}
+              {g.via && (
+                <span className="ml-2 text-xs text-muted">
+                  inherited from {g.via === '/' ? 'the vault root' : g.via + '/'}
+                </span>
+              )}
             </div>
             {g.via ? (
               <span className="shrink-0 text-xs text-muted">inherited</span>
