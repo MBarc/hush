@@ -26,7 +26,9 @@ export default function Browse() {
       .then(setTree)
       .catch((e) => setError(e.message))
   }
-  useEffect(load, [path])
+  useEffect(() => {
+    load()
+  }, [path])
 
   const go = (p) => navigate('/browse/' + p.split('/').map(encodeURIComponent).join('/'))
   const crumbs = path ? path.split('/') : []

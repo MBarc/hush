@@ -2,6 +2,7 @@ import { useEffect, useState, createContext, useContext } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { api } from './api'
 import { ToastProvider } from './components/ui'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import Login from './pages/Login'
 import Shell from './pages/Shell'
 import Browse from './pages/Browse'
@@ -44,15 +45,17 @@ export default function App() {
           </Routes>
         ) : (
           <Shell>
-            <Routes>
-              <Route path="/" element={<Browse />} />
-              <Route path="/browse/*" element={<Browse />} />
-              <Route path="/tokens" element={<Tokens />} />
-              <Route path="/devices" element={<Devices />} />
-              <Route path="/users" element={me.admin ? <Users /> : <Navigate to="/" />} />
-              <Route path="/audit" element={me.admin ? <Audit /> : <Navigate to="/" />} />
-              <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
+            <ErrorBoundary key={location.pathname}>
+              <Routes>
+                <Route path="/" element={<Browse />} />
+                <Route path="/browse/*" element={<Browse />} />
+                <Route path="/tokens" element={<Tokens />} />
+                <Route path="/devices" element={<Devices />} />
+                <Route path="/users" element={me.admin ? <Users /> : <Navigate to="/" />} />
+                <Route path="/audit" element={me.admin ? <Audit /> : <Navigate to="/" />} />
+                <Route path="*" element={<Navigate to="/" />} />
+              </Routes>
+            </ErrorBoundary>
           </Shell>
         )}
       </MeCtx.Provider>

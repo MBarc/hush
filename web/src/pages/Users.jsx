@@ -13,7 +13,9 @@ export default function Users() {
   const [fresh, setFresh] = useState(null)
 
   const load = () => api.users().then(setUsers).catch(() => setUsers([]))
-  useEffect(load, [])
+  useEffect(() => {
+    load()
+  }, [])
 
   const del = async (name) => {
     if (!confirm(`Delete user ${name}?`)) return

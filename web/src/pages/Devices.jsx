@@ -15,7 +15,9 @@ export default function Devices() {
   const [trusting, setTrusting] = useState(null)
 
   const load = () => api.devices().then(setDevices).catch(() => setDevices([]))
-  useEffect(load, [])
+  useEffect(() => {
+    load()
+  }, [])
 
   const block = async (h) => {
     await api.blockDevice(h).catch((e) => toast(e.message, 'error'))

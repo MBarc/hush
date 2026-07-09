@@ -12,7 +12,9 @@ export default function Tokens() {
   const [fresh, setFresh] = useState(null)
 
   const load = () => api.tokens().then(setTokens).catch(() => setTokens([]))
-  useEffect(load, [])
+  useEffect(() => {
+    load()
+  }, [])
 
   const del = async (name) => {
     if (!confirm(`Revoke token ${name}?`)) return

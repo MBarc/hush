@@ -24,7 +24,9 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
       .catch((e) => setError(e.message))
     api.versions(path).then((v) => setVersions(v.versions || [])).catch(() => {})
   }
-  useEffect(load, [path])
+  useEffect(() => {
+    load()
+  }, [path])
 
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()
