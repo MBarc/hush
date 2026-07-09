@@ -224,15 +224,22 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "secret.read", meta.Path, fmt.Sprintf("version=%d", version))
-	writeJSON(w, http.StatusOK, map[string]any{
-		"path": meta.Path, "meta": meta, "version": version, "value": string(value),
-	})
+	resp := map[string]any{"path": meta.Path, "meta": meta, "version": version}
+	if meta.Type == store.SecretTypeCredential {
+		var c store.Credential
+		json.Unmarshal(value, &c)
+		resp["credential"] = c
+	} else {
+		resp["value"] = string(value)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Value       string `json:"value"`
-		AgentAccess *bool  `json:"agentAccess"`
+		Value       string            `json:"value"`
+		Credential  *store.Credential `json:"credential"`
+		AgentAccess *bool             `json:"agentAccess"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad request body")
@@ -272,7 +279,17 @@ func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 		}
 		req.AgentAccess = nil // devices cannot change the flag
 	}
-	version, err := s.st.SetSecret(path, []byte(req.Value), id.label())
+	var version int
+	var err error
+	if req.Credential != nil {
+		if !id.isAdmin() {
+			httpError(w, http.StatusForbidden, "credentials require admin access")
+			return
+		}
+		version, err = s.st.SetCredential(path, *req.Credential, id.label())
+	} else {
+		version, err = s.st.SetSecret(path, []byte(req.Value), id.label())
+	}
 	if err != nil {
 		storeError(w, err)
 		return

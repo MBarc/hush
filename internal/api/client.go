@@ -186,10 +186,11 @@ func (c *Client) Tree(path string) (Tree, error) {
 }
 
 type SecretValue struct {
-	Path    string           `json:"path"`
-	Meta    store.SecretMeta `json:"meta"`
-	Version int              `json:"version"`
-	Value   string           `json:"value"`
+	Path       string            `json:"path"`
+	Meta       store.SecretMeta  `json:"meta"`
+	Version    int               `json:"version"`
+	Value      string            `json:"value"`
+	Credential *store.Credential `json:"credential"`
 }
 
 func (c *Client) GetSecret(path string, version int) (SecretValue, error) {
@@ -211,6 +212,14 @@ func (c *Client) SetSecret(path, value string, agentAccess *bool) (int, error) {
 		body["agentAccess"] = *agentAccess
 	}
 	err := c.do("PUT", "/api/v1/secrets/"+escapePath(path), body, &out)
+	return out.Version, err
+}
+
+func (c *Client) SetCredential(path string, cred store.Credential) (int, error) {
+	var out struct {
+		Version int `json:"version"`
+	}
+	err := c.do("PUT", "/api/v1/secrets/"+escapePath(path), map[string]any{"credential": cred}, &out)
 	return out.Version, err
 }
 

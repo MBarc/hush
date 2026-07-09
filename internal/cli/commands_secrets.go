@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MBarc/hush/internal/auth"
+	"github.com/MBarc/hush/internal/store"
 )
 
 func lsCmd() *cobra.Command {
@@ -57,6 +59,7 @@ func lsCmd() *cobra.Command {
 func getCmd() *cobra.Command {
 	var version int
 	var meta bool
+	var field string
 	cmd := &cobra.Command{
 		Use:   "get <path>",
 		Short: "print a secret's value (value only, script friendly)",
@@ -75,10 +78,21 @@ func getCmd() *cobra.Command {
 				return nil
 			}
 			if meta {
-				table([]string{"PATH", "VERSION", "AGENT ACCESS", "CREATED", "UPDATED"},
-					[][]string{{v.Meta.Path, strconv.Itoa(v.Version),
+				table([]string{"PATH", "TYPE", "VERSION", "AGENT ACCESS", "CREATED", "UPDATED"},
+					[][]string{{v.Meta.Path, v.Meta.Type, strconv.Itoa(v.Version),
 						onOff(v.Meta.AgentAccess), ts(v.Meta.CreatedAt), ts(v.Meta.UpdatedAt)}})
 				return nil
+			}
+			if v.Credential != nil {
+				if field != "" {
+					fmt.Println(credField(v.Credential, field))
+					return nil
+				}
+				printCredential(v.Credential)
+				return nil
+			}
+			if field != "" {
+				return fmt.Errorf("--field applies only to credential entries")
 			}
 			fmt.Println(v.Value)
 			return nil
@@ -86,7 +100,37 @@ func getCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&version, "version", 0, "read a specific version")
 	cmd.Flags().BoolVar(&meta, "meta", false, "show metadata instead of the value")
+	cmd.Flags().StringVar(&field, "field", "", "for a credential, print one field: username|password|url|notes")
 	return cmd
+}
+
+func credField(c *store.Credential, f string) string {
+	switch strings.ToLower(f) {
+	case "username", "user":
+		return c.Username
+	case "password", "pass":
+		return c.Password
+	case "url":
+		return c.URL
+	case "notes", "note":
+		return c.Notes
+	}
+	return ""
+}
+
+func printCredential(c *store.Credential) {
+	var rows [][]string
+	if c.Username != "" {
+		rows = append(rows, []string{"username", c.Username})
+	}
+	rows = append(rows, []string{"password", c.Password})
+	if c.URL != "" {
+		rows = append(rows, []string{"url", c.URL})
+	}
+	if c.Notes != "" {
+		rows = append(rows, []string{"notes", c.Notes})
+	}
+	table([]string{"FIELD", "VALUE"}, rows)
 }
 
 func setCmd() *cobra.Command {
@@ -144,6 +188,47 @@ func setCmd() *cobra.Command {
 	cmd.Flags().IntVar(&generate, "generate", 0, "generate a random value of this length")
 	cmd.Flags().StringVar(&agentAccess, "agent-access", "", "set agent access: on or off")
 	return cmd
+}
+
+func credCmd() *cobra.Command {
+	root := &cobra.Command{Use: "cred", Short: "manage credential entries (username/password/url/notes)"}
+
+	var username, password, url, notes string
+	var generate int
+	set := &cobra.Command{
+		Use:   "set <path>",
+		Short: "create or update a credential",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			if generate > 0 {
+				if password, err = auth.GeneratePassword(generate); err != nil {
+					return err
+				}
+			}
+			cred := store.Credential{Username: username, Password: password, URL: url, Notes: notes}
+			version, err := c.SetCredential(args[0], cred)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s credential v%d written\n", args[0], version)
+			if generate > 0 {
+				fmt.Printf("password: %s\n", password)
+			}
+			return nil
+		},
+	}
+	set.Flags().StringVar(&username, "username", "", "username")
+	set.Flags().StringVar(&password, "password", "", "password")
+	set.Flags().IntVar(&generate, "generate", 0, "generate a random password of this length")
+	set.Flags().StringVar(&url, "url", "", "url")
+	set.Flags().StringVar(&notes, "notes", "", "notes")
+
+	root.AddCommand(set)
+	return root
 }
 
 func mvCmd() *cobra.Command {

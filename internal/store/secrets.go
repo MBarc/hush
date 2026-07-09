@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -56,15 +57,33 @@ type FolderInfo struct {
 	Name string `json:"name"`
 }
 
+const (
+	SecretTypeValue      = "value"
+	SecretTypeCredential = "credential"
+)
+
+// Credential is the structured form of a secret: a login with optional
+// fields. Stored as encrypted JSON in the version blob.
+type Credential struct {
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Notes    string `json:"notes,omitempty"`
+}
+
 type SecretMeta struct {
 	Path           string `json:"path"`
 	Name           string `json:"name"`
+	Type           string `json:"type"`
 	AgentAccess    bool   `json:"agentAccess"`
 	Rotation       string `json:"rotation"`
 	CurrentVersion int    `json:"currentVersion"`
 	CreatedAt      int64  `json:"createdAt"`
 	UpdatedAt      int64  `json:"updatedAt"`
 }
+
+// secretMetaCols is the column list backing a SecretMeta scan.
+const secretMetaCols = `path, name, type, agent_access, rotation, current_version, created_at, updated_at`
 
 type VersionMeta struct {
 	Version   int    `json:"version"`
@@ -186,7 +205,7 @@ func (s *Store) ListFolder(path string) ([]FolderInfo, []SecretMeta, error) {
 		return folders, nil, nil // secrets always live inside a folder
 	}
 	secretRows, err = s.db.Query(
-		`SELECT s.path, s.name, s.agent_access, s.rotation, s.current_version,
+		`SELECT s.path, s.name, s.type, s.agent_access, s.rotation, s.current_version,
 		        s.created_at, s.updated_at
 		 FROM secrets s JOIN folders f ON s.folder_id = f.id
 		 WHERE f.path = ? ORDER BY s.name`, path)
@@ -196,9 +215,8 @@ func (s *Store) ListFolder(path string) ([]FolderInfo, []SecretMeta, error) {
 	defer secretRows.Close()
 	var secrets []SecretMeta
 	for secretRows.Next() {
-		var m SecretMeta
-		if err := secretRows.Scan(&m.Path, &m.Name, &m.AgentAccess, &m.Rotation,
-			&m.CurrentVersion, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		m, err := scanSecretMeta(secretRows)
+		if err != nil {
 			return nil, nil, err
 		}
 		secrets = append(secrets, m)
@@ -209,9 +227,25 @@ func (s *Store) ListFolder(path string) ([]FolderInfo, []SecretMeta, error) {
 	return folders, secrets, nil
 }
 
-// SetSecret writes a new version of the secret at path, creating the secret
-// and any missing folders. Returns the new version number.
+// SetSecret writes a new version of a value secret at path, creating the
+// secret and any missing folders. Returns the new version number.
 func (s *Store) SetSecret(path string, value []byte, actor string) (int, error) {
+	return s.setBlob(path, value, actor, SecretTypeValue)
+}
+
+// SetCredential writes a new version of a credential secret (its fields are
+// stored as encrypted JSON).
+func (s *Store) SetCredential(path string, c Credential, actor string) (int, error) {
+	blob, err := json.Marshal(c)
+	if err != nil {
+		return 0, err
+	}
+	return s.setBlob(path, blob, actor, SecretTypeCredential)
+}
+
+// setBlob writes a new encrypted version. A secret keeps the type it was
+// created with; writing the wrong type is rejected.
+func (s *Store) setBlob(path string, plaintext []byte, actor, secretType string) (int, error) {
 	path, err := NormalizePath(path)
 	if err != nil {
 		return 0, err
@@ -220,7 +254,7 @@ func (s *Store) SetSecret(path string, value []byte, actor string) (int, error) 
 	if name == "" || dir == "" {
 		return 0, fmt.Errorf("%w: secrets live inside a folder, like infra/proxmox/root", ErrInvalidPath)
 	}
-	blob, err := crypto.Encrypt(s.key, value)
+	blob, err := crypto.Encrypt(s.key, plaintext)
 	if err != nil {
 		return 0, err
 	}
@@ -236,12 +270,13 @@ func (s *Store) SetSecret(path string, value []byte, actor string) (int, error) 
 	}
 	var secretID int64
 	var version int
-	err = tx.QueryRow(`SELECT id, current_version FROM secrets WHERE path = ?`, path).
-		Scan(&secretID, &version)
+	var existingType string
+	err = tx.QueryRow(`SELECT id, current_version, type FROM secrets WHERE path = ?`, path).
+		Scan(&secretID, &version, &existingType)
 	if errors.Is(err, sql.ErrNoRows) {
 		res, ierr := tx.Exec(
-			`INSERT INTO secrets (folder_id, name, path, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?)`, folderID, name, path, now, now)
+			`INSERT INTO secrets (folder_id, name, path, type, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?)`, folderID, name, path, secretType, now, now)
 		if ierr != nil {
 			return 0, ierr
 		}
@@ -249,6 +284,8 @@ func (s *Store) SetSecret(path string, value []byte, actor string) (int, error) 
 		version = 0
 	} else if err != nil {
 		return 0, err
+	} else if existingType != secretType {
+		return 0, fmt.Errorf("%w: %s is a %s, not a %s", ErrInvalidPath, path, existingType, secretType)
 	}
 	version++
 	if _, err := tx.Exec(
@@ -262,6 +299,22 @@ func (s *Store) SetSecret(path string, value []byte, actor string) (int, error) 
 		return 0, err
 	}
 	return version, tx.Commit()
+}
+
+// GetCredential returns the decrypted credential fields at path.
+func (s *Store) GetCredential(path string) (SecretMeta, Credential, error) {
+	meta, val, err := s.GetSecret(path)
+	if err != nil {
+		return SecretMeta{}, Credential{}, err
+	}
+	if meta.Type != SecretTypeCredential {
+		return meta, Credential{}, fmt.Errorf("%w: %s is a %s, not a credential", ErrInvalidPath, path, meta.Type)
+	}
+	var c Credential
+	if err := json.Unmarshal(val, &c); err != nil {
+		return meta, Credential{}, err
+	}
+	return meta, c, nil
 }
 
 // GetSecret returns the metadata and decrypted current value at path.
@@ -280,15 +333,21 @@ func (s *Store) GetSecretMeta(path string) (SecretMeta, error) {
 	if err != nil {
 		return SecretMeta{}, err
 	}
-	var m SecretMeta
-	err = s.db.QueryRow(
-		`SELECT path, name, agent_access, rotation, current_version, created_at, updated_at
-		 FROM secrets WHERE path = ?`, path).
-		Scan(&m.Path, &m.Name, &m.AgentAccess, &m.Rotation, &m.CurrentVersion,
-			&m.CreatedAt, &m.UpdatedAt)
+	m, err := scanSecretMeta(s.db.QueryRow(
+		`SELECT `+secretMetaCols+` FROM secrets WHERE path = ?`, path))
 	if errors.Is(err, sql.ErrNoRows) {
 		return SecretMeta{}, ErrNotFound
 	}
+	return m, err
+}
+
+// scanner is satisfied by both *sql.Row and *sql.Rows.
+type scanner interface{ Scan(...any) error }
+
+func scanSecretMeta(row scanner) (SecretMeta, error) {
+	var m SecretMeta
+	err := row.Scan(&m.Path, &m.Name, &m.Type, &m.AgentAccess, &m.Rotation,
+		&m.CurrentVersion, &m.CreatedAt, &m.UpdatedAt)
 	return m, err
 }
 

@@ -182,6 +182,44 @@ func TestSecretMoveEndpoint(t *testing.T) {
 	}
 }
 
+func TestCredentialEndpoint(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	p := "/api/v1/secrets/HomeLab/Pi/Hush%20Server"
+
+	code, _ := e.call("PUT", p, "cookie:admin", map[string]any{
+		"credential": map[string]any{"username": "admin", "password": "sekret", "url": "http://hush.local:4874"},
+	})
+	if code != 200 {
+		t.Fatalf("put credential: %d", code)
+	}
+	code, out := e.call("GET", p, "cookie:admin", nil)
+	if code != 200 {
+		t.Fatalf("get: %d", code)
+	}
+	if out["value"] != nil {
+		t.Fatal("credential should not return a plain value")
+	}
+	cred, ok := out["credential"].(map[string]any)
+	if !ok || cred["username"] != "admin" || cred["password"] != "sekret" {
+		t.Fatalf("credential response: %+v", out)
+	}
+	if out["meta"].(map[string]any)["type"] != "credential" {
+		t.Fatalf("type: %+v", out["meta"])
+	}
+
+	// Rotation replaces the password but keeps the username.
+	e.call("POST", "/api/v1/rotate/HomeLab/Pi/Hush%20Server", "cookie:admin", map[string]any{})
+	_, out = e.call("GET", p, "cookie:admin", nil)
+	cred = out["credential"].(map[string]any)
+	if cred["username"] != "admin" {
+		t.Fatal("rotation should preserve username")
+	}
+	if cred["password"] == "sekret" || cred["password"] == "" {
+		t.Fatalf("rotation should set a new password, got %q", cred["password"])
+	}
+}
+
 func TestSpacedPaths(t *testing.T) {
 	e := newTestEnv(t)
 	e.login("admin", "test-admin-password")

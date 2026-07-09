@@ -103,10 +103,13 @@ export default function Browse() {
                 onClick={() => setOpenSecret(s.path)}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-raised/50"
               >
-                <SecretGlyph />
+                <SecretGlyph credential={s.type === 'credential'} />
                 <span className="mono text-sm text-primary">{s.name}</span>
                 <span className="mono text-xs text-muted">v{s.currentVersion}</span>
                 <span className="ml-auto flex items-center gap-3">
+                  {s.type === 'credential' && (
+                    <span className="pill border-border text-secondary">login</span>
+                  )}
                   {JSON.parse(s.rotation || '{}').intervalDays > 0 && (
                     <span className="pill border-border text-secondary">
                       rotates {JSON.parse(s.rotation).intervalDays}d
@@ -188,32 +191,44 @@ function NewFolderModal({ base, onClose, onCreated }) {
   )
 }
 
+function genPassword() {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.!@#%^*'
+  const a = new Uint32Array(24)
+  crypto.getRandomValues(a)
+  return Array.from(a, (n) => chars[n % chars.length]).join('')
+}
+
 function NewSecretModal({ base, onClose, onCreated }) {
   const [name, setName] = useState('')
+  const [type, setType] = useState('value')
   const [value, setValue] = useState('')
+  const [cred, setCred] = useState({ username: '', password: '', url: '', notes: '' })
   const [agentAccess, setAgentAccess] = useState(false)
   const [err, setErr] = useState('')
-  const gen = () => {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.!@#%^*'
-    const a = new Uint32Array(24)
-    crypto.getRandomValues(a)
-    setValue(Array.from(a, (n) => chars[n % chars.length]).join(''))
-  }
+
+  const setField = (k) => (e) => setCred({ ...cred, [k]: e.target.value })
+
   const submit = async (e) => {
     e.preventDefault()
-    const folder = base
-    if (!folder) {
+    if (!base) {
       setErr('Secrets live inside a folder. Open or create one first.')
       return
     }
     try {
-      const full = `${folder}/${name}`
-      await api.setSecret(full, value, agentAccess)
+      const full = `${base}/${name}`
+      if (type === 'credential') {
+        await api.setCredential(full, cred, agentAccess)
+      } else {
+        await api.setSecret(full, value, agentAccess)
+      }
       onCreated(full)
     } catch (e) {
       setErr(e.message)
     }
   }
+
+  const canSave = name && base && (type === 'value' ? !!value : !!cred.password)
+
   return (
     <Modal title="New secret" onClose={onClose}>
       <form onSubmit={submit}>
@@ -221,15 +236,57 @@ function NewSecretModal({ base, onClose, onCreated }) {
           Inside <span className="mono text-primary">{base || 'vault'}/</span>
           {!base && <span className="text-warning"> pick a folder first</span>}
         </p>
-        <label className="mb-1.5 block text-xs font-medium text-secondary">Name</label>
-        <input className="input mono mb-4" autoFocus placeholder="root" value={name} onChange={(e) => setName(e.target.value)} />
-        <label className="mb-1.5 block text-xs font-medium text-secondary">Value</label>
-        <div className="flex gap-2">
-          <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />
-          <button type="button" className="btn-ghost shrink-0" onClick={gen}>
-            Generate
-          </button>
+
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <TypeCard active={type === 'value'} onClick={() => setType('value')} title="Value" desc="A single secret string." />
+          <TypeCard active={type === 'credential'} onClick={() => setType('credential')} title="Credential" desc="Username, password, url, notes." />
         </div>
+
+        <label className="mb-1.5 block text-xs font-medium text-secondary">Name</label>
+        <input
+          className="input mono mb-4"
+          autoFocus
+          placeholder={type === 'credential' ? 'Hush Server' : 'root'}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+
+        {type === 'value' ? (
+          <>
+            <label className="mb-1.5 block text-xs font-medium text-secondary">Value</label>
+            <div className="flex gap-2">
+              <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />
+              <button type="button" className="btn-ghost shrink-0" onClick={() => setValue(genPassword())}>
+                Generate
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs text-secondary">Username</label>
+              <input className="input mono" value={cred.username} onChange={setField('username')} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-secondary">Password</label>
+              <div className="flex gap-2">
+                <input className="input mono" value={cred.password} onChange={setField('password')} />
+                <button type="button" className="btn-ghost shrink-0" onClick={() => setCred({ ...cred, password: genPassword() })}>
+                  Generate
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-secondary">URL</label>
+              <input className="input mono" placeholder="http://hush.local:4874" value={cred.url} onChange={setField('url')} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-secondary">Notes</label>
+              <textarea className="input mono min-h-[50px] resize-y" value={cred.notes} onChange={setField('notes')} />
+            </div>
+          </div>
+        )}
+
         <label className="mt-4 flex items-center gap-2.5 text-sm">
           <input type="checkbox" checked={agentAccess} onChange={(e) => setAgentAccess(e.target.checked)} className="accent-agent" />
           <span className="text-secondary">Allow AI agents and devices to read this</span>
@@ -239,12 +296,27 @@ function NewSecretModal({ base, onClose, onCreated }) {
           <button type="button" className="btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn-primary" disabled={!name || !value || !base}>
+          <button className="btn-primary" disabled={!canSave}>
             Save
           </button>
         </div>
       </form>
     </Modal>
+  )
+}
+
+function TypeCard({ active, onClick, title, desc }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-control border p-3 text-left transition-colors ${
+        active ? 'border-accent bg-accent/10' : 'border-border hover:border-border-strong'
+      }`}
+    >
+      <p className="text-sm font-medium text-primary">{title}</p>
+      <p className="mt-0.5 text-xs text-muted">{desc}</p>
+    </button>
   )
 }
 
@@ -255,7 +327,17 @@ function FolderGlyph() {
     </svg>
   )
 }
-function SecretGlyph() {
+function SecretGlyph({ credential }) {
+  if (credential) {
+    // person-in-a-card, to distinguish a login from a plain value
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#35D0BA" strokeWidth="1.8">
+        <circle cx="9" cy="10" r="2.5" />
+        <path d="M5 18a4 4 0 0 1 8 0M15 9h4M15 13h3" />
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+      </svg>
+    )
+  }
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6E6389" strokeWidth="1.8">
       <rect x="5" y="11" width="14" height="9" rx="2" />

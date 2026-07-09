@@ -58,6 +58,14 @@ func migrate(db *sql.DB) error {
 		}
 		version = 2
 	}
+	if version < 3 {
+		// A secret is either a single 'value' or a structured 'credential'
+		// (username/password/url/notes stored as encrypted JSON).
+		if _, err := db.Exec(`ALTER TABLE secrets ADD COLUMN type TEXT NOT NULL DEFAULT 'value'`); err != nil {
+			return err
+		}
+		version = 3
+	}
 	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
 		return err
 	}

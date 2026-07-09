@@ -39,6 +39,9 @@ export const api = {
     req('GET', '/api/v1/secrets/' + enc(path) + (version ? `?version=${version}` : '')),
   setSecret: (path, value, agentAccess) =>
     req('PUT', '/api/v1/secrets/' + enc(path), agentAccess === undefined ? { value } : { value, agentAccess }),
+  setCredential: (path, credential, agentAccess) =>
+    req('PUT', '/api/v1/secrets/' + enc(path),
+      agentAccess === undefined ? { credential } : { credential, agentAccess }),
   patchSecret: (path, patch) => req('PATCH', '/api/v1/secrets/' + enc(path), patch),
   deleteSecret: (path) => req('DELETE', '/api/v1/secrets/' + enc(path)),
   moveSecret: (from, to) => req('POST', '/api/v1/move', { from, to }),

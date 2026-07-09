@@ -106,6 +106,48 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+func TestCredential(t *testing.T) {
+	s := testStore(t)
+	c := Credential{Username: "admin", Password: "p@ss", URL: "http://x", Notes: "n"}
+	v, err := s.SetCredential("HomeLab/Pi/Hush Server", c, "test")
+	if err != nil || v != 1 {
+		t.Fatalf("set cred: v=%d err=%v", v, err)
+	}
+	meta, got, err := s.GetCredential("HomeLab/Pi/Hush Server")
+	if err != nil {
+		t.Fatalf("get cred: %v", err)
+	}
+	if meta.Type != SecretTypeCredential {
+		t.Fatalf("type = %q", meta.Type)
+	}
+	if got != c {
+		t.Fatalf("round-trip mismatch: %+v != %+v", got, c)
+	}
+
+	// Updating keeps the other fields and versions.
+	c.Password = "new-pass"
+	if _, err := s.SetCredential("HomeLab/Pi/Hush Server", c, "test"); err != nil {
+		t.Fatal(err)
+	}
+	_, got2, _ := s.GetCredential("HomeLab/Pi/Hush Server")
+	if got2.Password != "new-pass" || got2.Username != "admin" {
+		t.Fatalf("update wrong: %+v", got2)
+	}
+	if vers, _ := s.ListVersions("HomeLab/Pi/Hush Server"); len(vers) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(vers))
+	}
+
+	// Type is sticky: a value write onto a credential is rejected, and
+	// reading a value secret as a credential fails.
+	if _, err := s.SetSecret("HomeLab/Pi/Hush Server", []byte("x"), "test"); err == nil {
+		t.Fatal("SetSecret onto a credential should be rejected")
+	}
+	s.SetSecret("a/b/plain", []byte("v"), "test")
+	if _, _, err := s.GetCredential("a/b/plain"); err == nil {
+		t.Fatal("GetCredential on a value secret should fail")
+	}
+}
+
 func TestMoveSecret(t *testing.T) {
 	s := testStore(t)
 	s.SetSecret("infra/old/name", []byte("v1"), "test")

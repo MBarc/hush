@@ -103,7 +103,19 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
 
         {data && (
           <div className="flex-1 space-y-6 overflow-y-auto p-6">
-            {/* Value */}
+            {data.meta.type === 'credential' ? (
+              <CredentialSection
+                path={path}
+                cred={data.credential || {}}
+                version={data.version}
+                canEdit={canEdit}
+                onSaved={() => {
+                  load()
+                  onChanged()
+                }}
+                onRotate={rotate}
+              />
+            ) : (
             <section>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -154,6 +166,7 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
                 </div>
               )}
             </section>
+            )}
 
             {/* Agent access */}
             <section className="card p-4">
@@ -271,6 +284,119 @@ function MoveControl({ path, onMoved }) {
         </div>
       )}
     </section>
+  )
+}
+
+function CredentialSection({ path, cred, version, canEdit, onSaved, onRotate }) {
+  const toast = useToast()
+  const [editing, setEditing] = useState(false)
+  const [reveal, setReveal] = useState(false)
+  const [draft, setDraft] = useState(cred)
+  useEffect(() => setDraft(cred), [cred])
+
+  const save = async () => {
+    try {
+      await api.setCredential(path, draft)
+      setEditing(false)
+      setReveal(true)
+      onSaved()
+      toast('Credential saved', 'success')
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  }
+
+  if (editing) {
+    const set = (k) => (e) => setDraft({ ...draft, [k]: e.target.value })
+    return (
+      <section className="space-y-3">
+        <label className="text-xs font-medium uppercase tracking-wide text-muted">
+          Credential (v{version})
+        </label>
+        {['username', 'password', 'url'].map((k) => (
+          <div key={k}>
+            <label className="mb-1 block text-xs capitalize text-secondary">{k}</label>
+            <input className="input mono" value={draft[k] || ''} onChange={set(k)} />
+          </div>
+        ))}
+        <div>
+          <label className="mb-1 block text-xs text-secondary">Notes</label>
+          <textarea
+            className="input mono min-h-[60px] resize-y"
+            value={draft.notes || ''}
+            onChange={set('notes')}
+          />
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-primary" onClick={save}>
+            Save
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => {
+              setDraft(cred)
+              setEditing(false)
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="space-y-2">
+      <div className="mb-1 flex items-center justify-between">
+        <label className="text-xs font-medium uppercase tracking-wide text-muted">
+          Credential (v{version})
+        </label>
+        <button className="btn-ghost !px-2 !py-1" onClick={() => setReveal((r) => !r)}>
+          {reveal ? 'Hide' : 'Reveal'}
+        </button>
+      </div>
+      <CredRow label="Username" value={cred.username} />
+      <CredRow label="Password" value={cred.password} secret reveal={reveal} />
+      {cred.url && <CredRow label="URL" value={cred.url} isUrl />}
+      {cred.notes && <CredRow label="Notes" value={cred.notes} />}
+      {canEdit && (
+        <div className="mt-2 flex gap-2">
+          <button
+            className="btn-ghost"
+            onClick={() => {
+              setDraft(cred)
+              setEditing(true)
+            }}
+          >
+            Edit
+          </button>
+          <button className="btn-ghost" onClick={onRotate}>
+            Rotate password
+          </button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CredRow({ label, value, secret, reveal, isUrl }) {
+  const hidden = secret && !reveal
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-20 shrink-0 text-xs text-muted">{label}</span>
+      <div className="flex-1 overflow-hidden rounded-control border border-border bg-raised px-3 py-2 mono text-sm text-primary">
+        {hidden ? (
+          <MaskedDots />
+        ) : isUrl ? (
+          <a href={value} target="_blank" rel="noreferrer" className="break-all text-accent-hover hover:underline">
+            {value}
+          </a>
+        ) : (
+          <span className="break-all">{value || <span className="text-muted">-</span>}</span>
+        )}
+      </div>
+      {value && <CopyButton value={value} className="!px-2 !py-1 shrink-0" />}
+    </div>
   )
 }
 

@@ -71,7 +71,18 @@ func (s *Server) rotate(path, actor, ip string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	version, err := s.st.SetSecret(meta.Path, []byte(value), actor)
+	var version int
+	if meta.Type == store.SecretTypeCredential {
+		// Rotate only the password; keep username/url/notes.
+		_, cred, cerr := s.st.GetCredential(meta.Path)
+		if cerr != nil {
+			return 0, cerr
+		}
+		cred.Password = value
+		version, err = s.st.SetCredential(meta.Path, cred, actor)
+	} else {
+		version, err = s.st.SetSecret(meta.Path, []byte(value), actor)
+	}
 	if err != nil {
 		return 0, err
 	}
