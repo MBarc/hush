@@ -152,6 +152,36 @@ func TestSecretLifecycle(t *testing.T) {
 	}
 }
 
+func TestSecretMoveEndpoint(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/dns/old", "cookie:admin", map[string]any{"value": "secret-val"})
+
+	code, _ := e.call("POST", "/api/v1/move", "cookie:admin",
+		map[string]any{"from": "infra/dns/old", "to": "media/plex/moved"})
+	if code != 200 {
+		t.Fatalf("move: %d", code)
+	}
+	code, _ = e.call("GET", "/api/v1/secrets/infra/dns/old", "cookie:admin", nil)
+	if code != 404 {
+		t.Fatalf("old path should be 404, got %d", code)
+	}
+	code, out := e.call("GET", "/api/v1/secrets/media/plex/moved", "cookie:admin", nil)
+	if code != 200 || out["value"] != "secret-val" {
+		t.Fatalf("moved secret: %d %+v", code, out)
+	}
+
+	// Readonly users cannot move.
+	e.call("POST", "/api/v1/users", "cookie:admin",
+		map[string]any{"username": "movero", "password": "movero-pass-1", "role": "readonly"})
+	e.login("movero", "movero-pass-1")
+	code, _ = e.call("POST", "/api/v1/move", "cookie:movero",
+		map[string]any{"from": "media/plex/moved", "to": "media/plex/x"})
+	if code != 403 {
+		t.Fatalf("readonly move expected 403, got %d", code)
+	}
+}
+
 func TestReadonlyGrantsAndMethodEnforcement(t *testing.T) {
 	e := newTestEnv(t)
 	e.login("admin", "test-admin-password")

@@ -200,6 +200,17 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
             </section>
 
             {canEdit && (
+              <MoveControl
+                path={path}
+                onMoved={(to) => {
+                  onChanged()
+                  onClose()
+                  toast(`Moved to ${to}`, 'success')
+                }}
+              />
+            )}
+
+            {canEdit && (
               <button className="btn-danger w-full" onClick={del}>
                 Delete secret
               </button>
@@ -208,6 +219,58 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
         )}
       </div>
     </div>
+  )
+}
+
+function MoveControl({ path, onMoved }) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [to, setTo] = useState(path)
+
+  const save = async () => {
+    const dest = to.trim()
+    if (!dest || dest === path) {
+      setOpen(false)
+      return
+    }
+    try {
+      await api.moveSecret(path, dest)
+      onMoved(dest)
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  }
+
+  return (
+    <section className="card p-4">
+      <button
+        className="flex w-full items-center justify-between"
+        onClick={() => {
+          setTo(path)
+          setOpen((o) => !o)
+        }}
+      >
+        <div className="text-left">
+          <p className="text-sm font-medium text-primary">Rename or move</p>
+          <p className="text-xs text-muted">Change the path; version history follows.</p>
+        </div>
+        <span className="text-muted">{open ? 'Close' : 'Edit'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 flex gap-2">
+          <input
+            className="input mono"
+            value={to}
+            autoFocus
+            onChange={(e) => setTo(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && save()}
+          />
+          <button className="btn-primary shrink-0" onClick={save}>
+            Move
+          </button>
+        </div>
+      )}
+    </section>
   )
 }
 

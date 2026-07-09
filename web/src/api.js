@@ -41,6 +41,7 @@ export const api = {
     req('PUT', '/api/v1/secrets/' + enc(path), agentAccess === undefined ? { value } : { value, agentAccess }),
   patchSecret: (path, patch) => req('PATCH', '/api/v1/secrets/' + enc(path), patch),
   deleteSecret: (path) => req('DELETE', '/api/v1/secrets/' + enc(path)),
+  moveSecret: (from, to) => req('POST', '/api/v1/move', { from, to }),
   versions: (path) => req('GET', '/api/v1/secrets/' + enc(path) + '?versions=1'),
   rotate: (path) => req('POST', '/api/v1/rotate/' + enc(path), {}),
 

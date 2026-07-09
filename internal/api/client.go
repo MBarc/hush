@@ -231,6 +231,10 @@ func (c *Client) DeleteSecret(path string) error {
 	return c.do("DELETE", "/api/v1/secrets/"+escapePath(path), nil, nil)
 }
 
+func (c *Client) MoveSecret(from, to string) error {
+	return c.do("POST", "/api/v1/move", map[string]string{"from": from, "to": to}, nil)
+}
+
 func (c *Client) Versions(path string) ([]store.VersionMeta, error) {
 	var out struct {
 		Versions []store.VersionMeta `json:"versions"`

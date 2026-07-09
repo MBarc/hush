@@ -341,6 +341,60 @@ func (s *Store) DeleteSecret(path string) error {
 	return nil
 }
 
+// MoveSecret renames a secret or moves it to another folder, creating
+// destination folders as needed. The version history follows the secret.
+func (s *Store) MoveSecret(from, to string) error {
+	from, err := NormalizePath(from)
+	if err != nil {
+		return err
+	}
+	to, err = NormalizePath(to)
+	if err != nil {
+		return err
+	}
+	dir, name := splitPath(to)
+	if name == "" || dir == "" {
+		return fmt.Errorf("%w: secrets live inside a folder, like infra/proxmox/root", ErrInvalidPath)
+	}
+	if from == to {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var secretID int64
+	err = tx.QueryRow(`SELECT id FROM secrets WHERE path = ?`, from).Scan(&secretID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	var one int
+	err = tx.QueryRow(`SELECT 1 FROM secrets WHERE path = ?`, to).Scan(&one)
+	if err == nil {
+		return fmt.Errorf("%s: %w", to, ErrExists)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	folderID, err := ensureFolder(tx, dir)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE secrets SET folder_id = ?, name = ?, path = ?, updated_at = ? WHERE id = ?`,
+		folderID, name, to, time.Now().Unix(), secretID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // DeleteFolder removes a folder. Without recursive it refuses when the
 // folder still contains subfolders or secrets.
 func (s *Store) DeleteFolder(path string, recursive bool) error {

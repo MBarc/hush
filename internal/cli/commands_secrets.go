@@ -146,6 +146,25 @@ func setCmd() *cobra.Command {
 	return cmd
 }
 
+func mvCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "mv <from> <to>",
+		Short: "rename a secret or move it to another folder (keeps history)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			if err := c.MoveSecret(args[0], args[1]); err != nil {
+				return err
+			}
+			fmt.Printf("%s -> %s\n", args[0], args[1])
+			return nil
+		},
+	}
+}
+
 func rmCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "rm <path>",

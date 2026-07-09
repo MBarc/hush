@@ -320,6 +320,23 @@ func (s *Server) handleSecretMeta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, meta)
 }
 
+func (s *Server) handleSecretMove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		httpError(w, http.StatusBadRequest, "bad request body")
+		return
+	}
+	if err := s.st.MoveSecret(req.From, req.To); err != nil {
+		storeError(w, err)
+		return
+	}
+	s.audit(r, "secret.move", req.To, "from="+req.From)
+	writeJSON(w, http.StatusOK, map[string]string{"from": req.From, "to": req.To})
+}
+
 func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 	if err := s.st.DeleteSecret(path); err != nil {

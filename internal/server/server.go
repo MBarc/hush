@@ -87,6 +87,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("PUT /api/v1/secrets/{path...}", s.auth(s.handleSecretPut))
 	mux.HandleFunc("POST /api/v1/secrets/{path...}", s.auth(s.handleSecretPut)) // devices and simple clients POST
 	mux.HandleFunc("POST /api/v1/rotate/{path...}", s.auth(s.adminOnly(s.handleRotate)))
+	mux.HandleFunc("POST /api/v1/move", s.auth(s.adminOnly(s.handleSecretMove)))
 	mux.HandleFunc("PATCH /api/v1/secrets/{path...}", s.auth(s.adminOnly(s.handleSecretMeta)))
 	mux.HandleFunc("DELETE /api/v1/secrets/{path...}", s.auth(s.adminOnly(s.handleSecretDelete)))
 

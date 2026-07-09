@@ -106,6 +106,46 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+func TestMoveSecret(t *testing.T) {
+	s := testStore(t)
+	s.SetSecret("infra/old/name", []byte("v1"), "test")
+	s.SetSecret("infra/old/name", []byte("v2"), "test")
+
+	// Rename within the same folder, preserving history.
+	if err := s.MoveSecret("infra/old/name", "infra/old/renamed"); err != nil {
+		t.Fatalf("move: %v", err)
+	}
+	if _, _, err := s.GetSecret("infra/old/name"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("old path should be gone")
+	}
+	meta, val, err := s.GetSecret("infra/old/renamed")
+	if err != nil || string(val) != "v2" || meta.CurrentVersion != 2 {
+		t.Fatalf("moved secret wrong: %+v %q err=%v", meta, val, err)
+	}
+	if versions, _ := s.ListVersions("infra/old/renamed"); len(versions) != 2 {
+		t.Fatalf("history not preserved: %d versions", len(versions))
+	}
+
+	// Move into a brand-new folder tree.
+	if err := s.MoveSecret("infra/old/renamed", "archive/deep/here"); err != nil {
+		t.Fatalf("cross-folder move: %v", err)
+	}
+	if ok, _ := s.FolderExists("archive/deep"); !ok {
+		t.Fatal("destination folder should be created")
+	}
+
+	// Moving onto an existing secret fails.
+	s.SetSecret("a/b/c", []byte("x"), "test")
+	s.SetSecret("a/b/d", []byte("y"), "test")
+	if err := s.MoveSecret("a/b/c", "a/b/d"); !errors.Is(err, ErrExists) {
+		t.Fatalf("expected ErrExists, got %v", err)
+	}
+	// Moving a missing secret fails.
+	if err := s.MoveSecret("no/such/secret", "a/b/z"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestPathValidation(t *testing.T) {
 	s := testStore(t)
 	bad := []string{"has space/x", "../etc/passwd", "a//b", "trailing/.", "-lead/x"}
