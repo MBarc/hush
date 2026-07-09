@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useMe } from '../App'
-import { PageHeader } from './Shell'
+import { VaultTabs } from './Shell'
 import { AgentPill, Empty, Modal, useToast } from '../components/ui'
 import SecretDrawer from './SecretDrawer'
 
@@ -33,18 +33,21 @@ export default function Browse() {
 
   return (
     <>
-      <PageHeader title="Secrets" subtitle={me.admin ? 'Full vault access' : 'Your granted folders'}>
-        {me.admin && (
-          <>
-            <button className="btn-ghost" onClick={() => setNewFolder(true)}>
-              New folder
-            </button>
-            <button className="btn-primary" onClick={() => setNewSecret(true)}>
-              New secret
-            </button>
-          </>
-        )}
-      </PageHeader>
+      <div className="flex h-16 items-center justify-between border-b border-border px-8">
+        <VaultTabs active="secrets" />
+        <div className="flex items-center gap-2">
+          {me.admin && (
+            <>
+              <button className="btn-ghost" onClick={() => setNewFolder(true)}>
+                New folder
+              </button>
+              <button className="btn-primary" onClick={() => setNewSecret(true)}>
+                New secret
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
       <div className="p-8">
         {/* Breadcrumbs as a filesystem path */}

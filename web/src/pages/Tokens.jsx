@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, fmtTime } from '../api'
 import { useMe } from '../App'
-import { PageHeader } from './Shell'
+import { VaultTabs } from './Shell'
 import { CopyButton, Empty, Modal, useToast } from '../components/ui'
 
 export default function Tokens() {
@@ -22,11 +22,12 @@ export default function Tokens() {
 
   return (
     <>
-      <PageHeader title="Tokens" subtitle="API access for scripts, CI, and AI agents">
+      <div className="flex h-16 items-center justify-between border-b border-border px-8">
+        <VaultTabs active="tokens" />
         <button className="btn-primary" onClick={() => setCreating(true)}>
           New token
         </button>
-      </PageHeader>
+      </div>
 
       <div className="p-8">
         {tokens && tokens.length === 0 && (

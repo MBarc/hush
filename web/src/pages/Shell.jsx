@@ -1,19 +1,21 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useMe } from '../App'
 import { Logo, RoleBadge } from '../components/ui'
 
+// The Vault blade holds both secrets and tokens (as tabs), so it is active
+// on the browse and tokens routes.
 const nav = [
-  { to: '/', label: 'Secrets', icon: FolderIcon, end: true },
-  { to: '/tokens', label: 'Tokens', icon: KeyIcon },
-  { to: '/devices', label: 'Devices', icon: DeviceIcon },
-  { to: '/users', label: 'Users', icon: UsersIcon, admin: true },
-  { to: '/audit', label: 'Audit', icon: PulseIcon, admin: true },
+  { to: '/', label: 'Vault', icon: VaultIcon, active: (p) => p === '/' || p.startsWith('/browse') || p.startsWith('/tokens') },
+  { to: '/devices', label: 'Devices', icon: DeviceIcon, active: (p) => p.startsWith('/devices') },
+  { to: '/users', label: 'Users', icon: UsersIcon, admin: true, active: (p) => p.startsWith('/users') },
+  { to: '/audit', label: 'Audit', icon: PulseIcon, admin: true, active: (p) => p.startsWith('/audit') },
 ]
 
 export default function Shell({ children }) {
   const { me, setMe } = useMe()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
 
   const logout = async () => {
     await api.logout().catch(() => {})
@@ -33,21 +35,18 @@ export default function Shell({ children }) {
           {nav
             .filter((n) => !n.admin || me.admin)
             .map((n) => (
-              <NavLink
+              <Link
                 key={n.to}
                 to={n.to}
-                end={n.end}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-control px-3 py-2 text-sm transition-colors ${
-                    isActive
-                      ? 'bg-raised text-primary'
-                      : 'text-secondary hover:bg-raised/60 hover:text-primary'
-                  }`
-                }
+                className={`flex items-center gap-3 rounded-control px-3 py-2 text-sm transition-colors ${
+                  n.active(pathname)
+                    ? 'bg-raised text-primary'
+                    : 'text-secondary hover:bg-raised/60 hover:text-primary'
+                }`}
               >
                 <n.icon />
                 {n.label}
-              </NavLink>
+              </Link>
             ))}
         </nav>
 
@@ -79,20 +78,35 @@ export function PageHeader({ title, subtitle, children }) {
   )
 }
 
-// --- icons (stroke, 18px) ---
-
-function FolderIcon() {
+// VaultTabs is the sub-navigation inside the Vault blade: secrets and
+// tokens live together here.
+export function VaultTabs({ active }) {
+  const tab = (to, key, label) => (
+    <Link
+      to={to}
+      className={`rounded-control px-3 py-1.5 text-sm font-medium transition-colors ${
+        active === key ? 'bg-raised text-primary' : 'text-secondary hover:text-primary'
+      }`}
+    >
+      {label}
+    </Link>
+  )
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-    </svg>
+    <div className="flex items-center gap-1">
+      {tab('/', 'secrets', 'Secrets')}
+      {tab('/tokens', 'tokens', 'Tokens')}
+    </div>
   )
 }
-function KeyIcon() {
+
+// --- icons (stroke, 18px) ---
+
+function VaultIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="8" cy="15" r="4" />
-      <path d="M10.8 12.2 20 3M17 6l2 2M14 9l1.5 1.5" />
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="M12 12h4" />
     </svg>
   )
 }

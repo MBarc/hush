@@ -36,11 +36,18 @@ func uiHandler() http.Handler {
 			serveIndex(w, index) // SPA fallback
 			return
 		}
+		// Vite asset filenames are content-hashed, so they are safe to cache
+		// forever. index.html must never be cached (see serveIndex) or a
+		// browser could keep pointing at asset hashes from an old build.
+		if strings.HasPrefix(p, "assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
 		fileServer.ServeHTTP(w, r)
 	})
 }
 
 func serveIndex(w http.ResponseWriter, index []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(index)
 }
