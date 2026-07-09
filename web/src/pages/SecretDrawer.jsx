@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, fmtTime } from '../api'
 import { AgentPill, CopyButton, useToast } from '../components/ui'
+import { DeviceAccess } from '../components/DeviceAccess'
 
 // The secret detail slides in from the right. Value stays masked until
 // revealed, and every mutating control is hidden for non-admins.
@@ -170,13 +171,16 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
             </section>
             )}
 
-            {/* Agent access */}
+            {/* Device access (grants, cascading) */}
+            {canEdit && <DeviceAccess path={path} />}
+
+            {/* Agent token access */}
             <section className="card p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-primary">Machine access</p>
+                  <p className="text-sm font-medium text-primary">Agent token access</p>
                   <p className="text-xs text-muted">
-                    When on, scoped agent tokens and trusted devices can read this secret.
+                    When on, scoped agent tokens (for CI and AI) can read this secret. Devices use the grants above.
                   </p>
                 </div>
                 <AgentPill on={data.meta.agentAccess} />
@@ -190,7 +194,7 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
                   }`}
                   onClick={toggleAgent}
                 >
-                  {data.meta.agentAccess ? 'Turn machine access off' : 'Turn machine access on'}
+                  {data.meta.agentAccess ? 'Turn agent token access off' : 'Turn agent token access on'}
                 </button>
               )}
             </section>

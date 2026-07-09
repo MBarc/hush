@@ -4,6 +4,7 @@ import { api } from '../api'
 import { useMe } from '../App'
 import { VaultTabs } from './Shell'
 import { AgentPill, Empty, Modal, useToast } from '../components/ui'
+import { DeviceAccess } from '../components/DeviceAccess'
 import SecretDrawer from './SecretDrawer'
 
 export default function Browse() {
@@ -18,6 +19,7 @@ export default function Browse() {
   const [openSecret, setOpenSecret] = useState(null)
   const [newSecret, setNewSecret] = useState(false)
   const [newFolder, setNewFolder] = useState(false)
+  const [folderDrawer, setFolderDrawer] = useState(false)
 
   const load = () => {
     setError('')
@@ -38,6 +40,11 @@ export default function Browse() {
       <div className="flex h-16 items-center justify-between border-b border-border px-8">
         <VaultTabs active="secrets" />
         <div className="flex items-center gap-2">
+          {me.admin && path && (
+            <button className="btn-ghost" onClick={() => setFolderDrawer(true)}>
+              Folder access
+            </button>
+          )}
           {me.admin && (
             <>
               <button className="btn-ghost" onClick={() => setNewFolder(true)}>
@@ -136,6 +143,7 @@ export default function Browse() {
           onChanged={load}
         />
       )}
+      {folderDrawer && <FolderDrawer path={path} onClose={() => setFolderDrawer(false)} />}
       {newFolder && (
         <NewFolderModal
           base={path}
@@ -322,6 +330,42 @@ function TypeCard({ active, onClick, title, desc }) {
       <p className="text-sm font-medium text-primary">{title}</p>
       <p className="mt-0.5 text-xs text-muted">{desc}</p>
     </button>
+  )
+}
+
+function FolderDrawer({ path, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  const name = path.split('/').pop()
+  const parent = path.split('/').slice(0, -1).join('/')
+  return (
+    <div className="fixed inset-0 z-30 flex justify-end bg-base/60 backdrop-blur-sm" onMouseDown={onClose}>
+      <div
+        className="flex h-full w-full max-w-lg flex-col border-l border-border bg-surface"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between border-b border-border p-6">
+          <div>
+            <p className="mono text-xs text-muted">{parent ? parent + '/' : 'vault /'}</p>
+            <h2 className="mono text-xl font-semibold text-primary">{name}/</h2>
+          </div>
+          <button onClick={onClose} className="text-muted hover:text-primary" aria-label="Close">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          <p className="text-sm text-secondary">
+            Devices granted on this folder can read every secret inside it and its subfolders.
+          </p>
+          <DeviceAccess path={path} />
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -56,7 +56,7 @@ export default function Devices() {
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">IP</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Scopes</th>
+                  <th className="px-4 py-3 font-medium">Granted paths</th>
                   <th className="px-4 py-3 font-medium">Last seen</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -75,7 +75,7 @@ export default function Devices() {
                       </span>
                     </td>
                     <td className="px-4 py-3 mono text-xs text-secondary">
-                      {d.scopes && d.scopes.length ? d.scopes.join(', ') : '-'}
+                      {d.grants && d.grants.length ? d.grants.join(', ') : '-'}
                     </td>
                     <td className="px-4 py-3 text-muted">{fmtTime(d.lastSeen)}</td>
                     <td className="px-4 py-3">
@@ -185,20 +185,14 @@ function NameCell({ d, onSaved }) {
 }
 
 function TrustModal({ device, onClose, onSaved }) {
-  const [scopes, setScopes] = useState((device.scopes || []).join(', '))
   const [allowWrite, setAllowWrite] = useState(device.allowWrite || false)
   const [ttlDays, setTtlDays] = useState(0)
   const [err, setErr] = useState('')
 
   const submit = async (e) => {
     e.preventDefault()
-    const list = scopes.split(',').map((s) => s.trim()).filter(Boolean)
-    if (!list.length) {
-      setErr('At least one scope is required.')
-      return
-    }
     try {
-      await api.trustDevice(device.hostname, { scopes: list, allowWrite, ttlDays: Number(ttlDays) })
+      await api.trustDevice(device.hostname, { allowWrite, ttlDays: Number(ttlDays) })
       onSaved()
     } catch (e) {
       setErr(e.message)
@@ -206,21 +200,19 @@ function TrustModal({ device, onClose, onSaved }) {
   }
 
   return (
-    <Modal title={`Trust ${device.hostname}`} onClose={onClose}>
+    <Modal title={`Trust ${device.label || device.hostname}`} onClose={onClose}>
       <form onSubmit={submit}>
         <p className="mb-4 text-sm text-secondary">
           Last seen at <span className="mono text-primary">{device.ip}</span>. Requests are only honored
-          from this address.
+          from this address. Grant it specific folders or secrets from their <span className="text-primary">Device access</span> panel.
         </p>
-        <label className="mb-1.5 block text-xs font-medium text-secondary">Scopes (comma-separated globs)</label>
-        <input className="input mono mb-4" autoFocus placeholder="infra/nas/*" value={scopes} onChange={(e) => setScopes(e.target.value)} />
 
         <label className="mb-4 flex items-center gap-2.5 text-sm">
           <input type="checkbox" checked={allowWrite} onChange={(e) => setAllowWrite(e.target.checked)} className="accent-agent" />
-          <span className="text-secondary">Allow writes within scope (not just reads)</span>
+          <span className="text-secondary">Allow writes within its granted paths (not just reads)</span>
         </label>
 
-        <label className="mb-1.5 block text-xs font-medium text-secondary">Trust expires after (days, 0 = never)</label>
+        <label className="mb-1.5 block text-xs font-medium text-secondary">Access expires after (days, 0 = never)</label>
         <input className="input mb-4" type="number" min="0" value={ttlDays} onChange={(e) => setTtlDays(e.target.value)} />
 
         {err && <p className="mb-3 text-sm text-danger">{err}</p>}
