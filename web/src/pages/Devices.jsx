@@ -51,7 +51,7 @@ export default function Devices() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                  <th className="px-4 py-3 font-medium">Hostname</th>
+                  <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">IP</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Scopes</th>
@@ -62,7 +62,13 @@ export default function Devices() {
               <tbody className="divide-y divide-border">
                 {devices.map((d) => (
                   <tr key={d.hostname}>
-                    <td className="px-4 py-3 mono text-primary">{d.hostname}</td>
+                    <td className="px-4 py-3 mono">
+                      {d.hostname === d.ip ? (
+                        <span className="text-muted">unnamed</span>
+                      ) : (
+                        <span className="text-primary">{d.hostname}</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 mono text-secondary">{d.ip}</td>
                     <td className="px-4 py-3">
                       <span className={`pill ${statusTone[d.status]}`}>

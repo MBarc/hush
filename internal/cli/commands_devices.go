@@ -36,12 +36,17 @@ func deviceCmd() *cobra.Command {
 				if d.AllowWrite {
 					write = "+write"
 				}
+				// No reverse-DNS name: identity is the IP, so don't repeat it.
+				name := d.Hostname
+				if name == d.IP {
+					name = "-"
+				}
 				rows = append(rows, []string{
-					d.Hostname, d.IP, d.Status + write,
+					name, d.IP, d.Status + write,
 					strings.Join(d.Scopes, ","), ts(d.LastSeen), ts(d.ExpiresAt),
 				})
 			}
-			table([]string{"HOSTNAME", "IP", "STATUS", "SCOPES", "LAST SEEN", "EXPIRES"}, rows)
+			table([]string{"NAME", "IP", "STATUS", "SCOPES", "LAST SEEN", "EXPIRES"}, rows)
 			return nil
 		},
 	}
