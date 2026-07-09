@@ -148,15 +148,36 @@ func TestMoveSecret(t *testing.T) {
 
 func TestPathValidation(t *testing.T) {
 	s := testStore(t)
-	bad := []string{"has space/x", "../etc/passwd", "a//b", "trailing/.", "-lead/x"}
+	// Traversal, separators, and empty segments stay rejected.
+	bad := []string{"../etc/passwd", "a//b", "trailing/.", "deep/../x"}
 	for _, p := range bad {
 		if _, err := s.SetSecret(p+"/name", []byte("v"), "t"); err == nil {
 			t.Fatalf("path %q should be rejected", p)
 		}
 	}
+	// Spaces and friendly names are allowed now.
+	if _, _, err := setAndGet(s, "HomeLab/Raspberry Pis/hush server"); err != nil {
+		t.Fatalf("spaces should be allowed: %v", err)
+	}
+	// Surrounding whitespace on a segment is trimmed away.
+	v, _ := s.SetSecret("  Home Lab / Proxmox VMs /pve root ", []byte("v"), "t")
+	if v != 1 {
+		t.Fatalf("expected version 1, got %d", v)
+	}
+	if _, _, err := s.GetSecret("Home Lab/Proxmox VMs/pve root"); err != nil {
+		t.Fatalf("trimmed path should resolve: %v", err)
+	}
+	// Secrets still cannot live at the root.
 	if _, err := s.SetSecret("top-level-secret", []byte("v"), "t"); err == nil {
 		t.Fatal("secrets outside folders should be rejected")
 	}
+}
+
+func setAndGet(s *Store, path string) (SecretMeta, []byte, error) {
+	if _, err := s.SetSecret(path, []byte("v"), "t"); err != nil {
+		return SecretMeta{}, nil, err
+	}
+	return s.GetSecret(path)
 }
 
 func TestAudit(t *testing.T) {

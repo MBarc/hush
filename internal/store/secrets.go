@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/MBarc/hush/internal/crypto"
 )
@@ -17,23 +17,38 @@ var (
 	ErrNotEmpty    = errors.New("folder not empty")
 )
 
-var segmentRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
-
 // NormalizePath validates and canonicalizes a secret or folder path like
-// "infra/proxmox/root". Segments allow letters, digits, dot, underscore,
-// and hyphen.
+// "HomeLab/Raspberry Pis/hush-server". Segments may contain spaces and most
+// printable characters and are trimmed of surrounding whitespace. Empty
+// segments, "." and "..", path separators, and control characters are
+// rejected so a name can never escape its folder.
 func NormalizePath(p string) (string, error) {
 	p = strings.Trim(strings.TrimSpace(p), "/")
 	if p == "" {
 		return "", nil // root
 	}
 	segs := strings.Split(p, "/")
-	for _, s := range segs {
-		if !segmentRe.MatchString(s) {
-			return "", fmt.Errorf("%w: segment %q", ErrInvalidPath, s)
+	for i, s := range segs {
+		ns, err := normalizeSegment(s)
+		if err != nil {
+			return "", err
 		}
+		segs[i] = ns
 	}
 	return strings.Join(segs, "/"), nil
+}
+
+func normalizeSegment(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "." || s == ".." {
+		return "", fmt.Errorf("%w: segment %q", ErrInvalidPath, s)
+	}
+	for _, r := range s {
+		if r == '/' || r == '\\' || unicode.IsControl(r) {
+			return "", fmt.Errorf("%w: segment %q has an illegal character", ErrInvalidPath, s)
+		}
+	}
+	return s, nil
 }
 
 type FolderInfo struct {

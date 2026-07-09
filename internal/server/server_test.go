@@ -182,6 +182,37 @@ func TestSecretMoveEndpoint(t *testing.T) {
 	}
 }
 
+func TestSpacedPaths(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+
+	// Create and read a secret at a spaced path (URL-encoded like the clients do).
+	code, _ := e.call("PUT", "/api/v1/secrets/HomeLab/Raspberry%20Pis/hush-server", "cookie:admin",
+		map[string]any{"value": "pi-cred"})
+	if code != 200 {
+		t.Fatalf("put spaced path: %d", code)
+	}
+	code, out := e.call("GET", "/api/v1/secrets/HomeLab/Raspberry%20Pis/hush-server", "cookie:admin", nil)
+	if code != 200 || out["value"] != "pi-cred" {
+		t.Fatalf("get spaced path: %d %+v", code, out)
+	}
+
+	// The spaced folder appears (decoded) in the tree.
+	code, tree := e.call("GET", "/api/v1/tree/HomeLab", "cookie:admin", nil)
+	if code != 200 {
+		t.Fatalf("tree: %d", code)
+	}
+	found := false
+	for _, f := range tree["folders"].([]any) {
+		if f.(map[string]any)["name"] == "Raspberry Pis" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("spaced folder not listed: %+v", tree["folders"])
+	}
+}
+
 func TestReadonlyGrantsAndMethodEnforcement(t *testing.T) {
 	e := newTestEnv(t)
 	e.login("admin", "test-admin-password")
