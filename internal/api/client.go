@@ -186,6 +186,25 @@ func (c *Client) Tree(path string) (Tree, error) {
 	return t, err
 }
 
+// CatalogItem is a discovery-facing view of a secret: name, notes, and
+// whether this caller may read it. Never carries the value.
+type CatalogItem struct {
+	Path     string `json:"path"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Notes    string `json:"notes"`
+	Readable bool   `json:"readable"`
+}
+
+// List returns the whole-vault discovery catalog (metadata only).
+func (c *Client) List() ([]CatalogItem, error) {
+	var out struct {
+		Secrets []CatalogItem `json:"secrets"`
+	}
+	err := c.do("GET", "/api/v1/list", nil, &out)
+	return out.Secrets, err
+}
+
 type SecretValue struct {
 	Path       string            `json:"path"`
 	Meta       store.SecretMeta  `json:"meta"`

@@ -80,6 +80,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/auth/me", s.auth(s.handleMe))
 
 	mux.HandleFunc("GET /api/v1/tree/{path...}", s.auth(s.handleTree))
+	mux.HandleFunc("GET /api/v1/list", s.auth(s.handleList))
 	mux.HandleFunc("POST /api/v1/folders", s.auth(s.adminOnly(s.handleFolderCreate)))
 	mux.HandleFunc("DELETE /api/v1/folders/{path...}", s.auth(s.adminOnly(s.handleFolderDelete)))
 

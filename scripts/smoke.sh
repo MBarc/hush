@@ -63,6 +63,14 @@ check "agent reads folder sibling"     200 "$(code GET /api/v1/secrets/infra/dns
 check "agent denied outside folder"    404 "$(code GET /api/v1/secrets/media/plex/tok "$AH")"
 check "agent cannot write"             403 "$(code PUT /api/v1/secrets/infra/dns/cf "$AH" '{"value":"x"}')"
 check "agent cannot browse"            403 "$(code GET /api/v1/tree/ "$AH")"
+check "agent can read the catalog"     200 "$(code GET /api/v1/list "$AH")"
+CATALOG=$(curl -s -H "$AH" "$BASE/api/v1/list")
+check "catalog lists an out-of-scope secret" yes \
+  "$(printf '%s' "$CATALOG" | grep -q 'media/plex/tok' && echo yes || echo no)"
+check "catalog marks it not readable"        yes \
+  "$(printf '%s' "$CATALOG" | grep -q '"readable":false' && echo yes || echo no)"
+check "catalog carries no values"            yes \
+  "$(printf '%s' "$CATALOG" | grep -q '"value"' && echo no || echo yes)"
 
 echo "readonly enforcement:"
 ac -X POST "$BASE/api/v1/users" -H 'Content-Type: application/json' \

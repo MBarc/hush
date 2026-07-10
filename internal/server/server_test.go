@@ -352,6 +352,54 @@ func TestAgentTokenScoping(t *testing.T) {
 	}
 }
 
+func TestListCatalog(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/dns/cloudflare", "cookie:admin", map[string]any{"value": "cf"})
+	e.call("PUT", "/api/v1/secrets/infra/dns/creds", "cookie:admin",
+		map[string]any{"credential": map[string]any{"username": "u", "password": "p", "notes": "DNS-01 challenge key"}})
+	e.call("PUT", "/api/v1/secrets/banking/chase", "cookie:admin", map[string]any{"value": "secret"})
+
+	// An agent token scoped to infra/dns still sees the WHOLE catalog, with a
+	// readable flag, but never any value.
+	code, out := e.call("POST", "/api/v1/tokens", "cookie:admin",
+		map[string]any{"name": "finder", "type": "agent", "path": "infra/dns"})
+	if code != 201 {
+		t.Fatalf("token create: %d %+v", code, out)
+	}
+	token := out["token"].(string)
+
+	code, list := e.call("GET", "/api/v1/list", token, nil)
+	if code != 200 {
+		t.Fatalf("list: %d %+v", code, list)
+	}
+	secrets, _ := list["secrets"].([]any)
+	if len(secrets) != 3 {
+		t.Fatalf("expected 3 catalog entries, got %d: %+v", len(secrets), secrets)
+	}
+	byPath := map[string]map[string]any{}
+	for _, s := range secrets {
+		m := s.(map[string]any)
+		byPath[m["path"].(string)] = m
+		if _, leaked := m["value"]; leaked {
+			t.Fatalf("catalog leaked a value: %+v", m)
+		}
+	}
+	// In-folder secret is readable; the credential's notes surface for discovery.
+	if ent := byPath["infra/dns/creds"]; ent["readable"] != true || ent["notes"] != "DNS-01 challenge key" {
+		t.Fatalf("infra/dns/creds entry wrong: %+v", ent)
+	}
+	// Out-of-folder secret is listed but not readable.
+	if ent := byPath["banking/chase"]; ent == nil || ent["readable"] != false {
+		t.Fatalf("banking/chase should be listed but not readable: %+v", ent)
+	}
+	// The token cannot actually GET the out-of-folder secret.
+	code, _ = e.call("GET", "/api/v1/secrets/banking/chase", token, nil)
+	if code != 404 {
+		t.Fatalf("out-of-folder GET expected 404, got %d", code)
+	}
+}
+
 func TestAuditTrail(t *testing.T) {
 	e := newTestEnv(t)
 	e.login("admin", "test-admin-password")

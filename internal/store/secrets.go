@@ -227,6 +227,51 @@ func (s *Store) ListFolder(path string) ([]FolderInfo, []SecretMeta, error) {
 	return folders, secrets, nil
 }
 
+// CatalogItem is a discovery-facing view of a secret: its path, display
+// name, type, and notes, but never the value or login fields. Notes come
+// from a credential's notes field (empty for a plain value).
+type CatalogItem struct {
+	Path  string `json:"path"`
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Notes string `json:"notes"`
+}
+
+// ListCatalog returns every secret in the vault as a CatalogItem, ordered by
+// path, decrypting only the notes field of credentials. It is the backing
+// store for the discovery endpoint; the caller decides what each requester
+// may actually read.
+func (s *Store) ListCatalog() ([]CatalogItem, error) {
+	rows, err := s.db.Query(`SELECT path, name, type FROM secrets ORDER BY path`)
+	if err != nil {
+		return nil, err
+	}
+	var items []CatalogItem
+	for rows.Next() {
+		var it CatalogItem
+		if err := rows.Scan(&it.Path, &it.Name, &it.Type); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	// Close before the per-item decrypt below: the store runs on a single
+	// connection, so a query cannot run while these rows are still open.
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].Type != SecretTypeCredential {
+			continue
+		}
+		if _, c, err := s.GetCredential(items[i].Path); err == nil {
+			items[i].Notes = c.Notes
+		}
+	}
+	return items, nil
+}
+
 // SetSecret writes a new version of a value secret at path, creating the
 // secret and any missing folders. Returns the new version number.
 func (s *Store) SetSecret(path string, value []byte, actor string) (int, error) {

@@ -34,7 +34,7 @@ func Execute(version string) {
 
 	root.AddCommand(
 		serveCmd(), versionCmd(), loginCmd(), logoutCmd(), whoamiCmd(),
-		lsCmd(), getCmd(), setCmd(), credCmd(), mvCmd(), rmCmd(), mkdirCmd(), rmdirCmd(),
+		lsCmd(), catalogCmd(), getCmd(), setCmd(), credCmd(), mvCmd(), rmCmd(), mkdirCmd(), rmdirCmd(),
 		versionsCmd(), metaCmd(), rotateCmd(), policyCmd(),
 		tokenCmd(), userCmd(), deviceCmd(), auditCmd(),
 	)

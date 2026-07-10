@@ -36,6 +36,11 @@ Unauthorized reads return `404`, not `403`, so paths cannot be probed.
 - `GET /auth/me` - current identity, role, grants
 
 ### Secrets and folders
+- `GET /list` - discovery catalog: every secret's `{path, name, type, notes,
+  readable}`, never a value. Works for agent tokens and devices too, so an
+  agent can find a password it cannot yet read (`readable:false`) and ask to
+  be granted it. Notes are treated as discovery metadata - do not put secret
+  material in a note.
 - `GET /tree/{path}` - list folders and secrets (filtered to your grants)
 - `POST /folders` - `{path}` (admin)
 - `DELETE /folders/{path}?recursive=1` (admin)

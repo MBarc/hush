@@ -99,6 +99,11 @@ The token reads `infra/dns` and everything beneath it, and nothing else. A
 read of any other path returns 404, as if it did not exist. Revoke the token
 to cut access instantly. Every read is in the audit log.
 
+To help an agent find what it needs, `GET /api/v1/list` (or `hush catalog`)
+returns a discovery catalog: every secret's name, type, and notes, with a
+`readable` flag, but never a value. An agent can spot a password it cannot yet
+reach and ask to be granted the folder.
+
 ### Let a device fetch by hostname, no token
 
 Point Hush at your LAN and it builds a device inventory:

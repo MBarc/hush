@@ -58,6 +58,45 @@ func lsCmd() *cobra.Command {
 	}
 }
 
+func catalogCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "catalog",
+		Aliases: []string{"list"},
+		Short:   "list every secret's name and notes (discovery only, no values)",
+		Long: "List every secret in the vault by name, type, and notes so an agent\n" +
+			"can discover which one it needs. Values and login fields are never\n" +
+			"shown. READABLE marks the ones this identity may actually GET.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			items, err := c.List()
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				printJSON(items)
+				return nil
+			}
+			var rows [][]string
+			for _, it := range items {
+				readable := "no"
+				if it.Readable {
+					readable = "yes"
+				}
+				rows = append(rows, []string{it.Path, it.Type, readable, it.Notes})
+			}
+			if len(rows) == 0 {
+				fmt.Println("(no secrets)")
+				return nil
+			}
+			table([]string{"PATH", "TYPE", "READABLE", "NOTES"}, rows)
+			return nil
+		},
+	}
+}
+
 func getCmd() *cobra.Command {
 	var version int
 	var meta bool

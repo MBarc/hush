@@ -172,6 +172,30 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		"path": path, "folders": folders, "secrets": secrets, "tokens": tokens})
 }
 
+// handleList is the discovery catalog: every secret's path, name, type, and
+// notes, plus a per-caller "readable" flag. It deliberately works for machine
+// callers (agent tokens, devices) too, so an agent can find a password it may
+// not yet be able to read and ask to be granted it. Values and login fields
+// are never included; notes are treated as discovery metadata.
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	id := mustIdentity(r)
+	items, err := s.st.ListCatalog()
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	type listItem struct {
+		store.CatalogItem
+		Readable bool `json:"readable"`
+	}
+	out := make([]listItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, listItem{CatalogItem: it, Readable: canReadSecret(id, it.Path)})
+	}
+	s.audit(r, "secret.list", "", fmt.Sprintf("count=%d", len(out)))
+	writeJSON(w, http.StatusOK, map[string]any{"secrets": out})
+}
+
 func (s *Server) handleFolderCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path string `json:"path"`
