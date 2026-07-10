@@ -48,6 +48,11 @@ services:
 With host networking the port mapping is dropped; Hush listens on
 `0.0.0.0:4874` directly. Change the port with `HUSH_LISTEN=:8200`.
 
+The poller finds a host two ways: a TCP probe it answers (or refuses), and
+the kernel ARP table. The probe pass forces the subnet to ARP-resolve, so a
+host that silently drops probes (a firewalled desktop) still answers ARP and
+shows up. Host networking is required for the ARP pass to see the real table.
+
 A ready-made host-networking compose file is included:
 
 ```sh
