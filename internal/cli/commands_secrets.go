@@ -38,19 +38,21 @@ func lsCmd() *cobra.Command {
 			}
 			var rows [][]string
 			for _, f := range tree.Folders {
-				rows = append(rows, []string{f.Name + "/", "", "", ""})
+				rows = append(rows, []string{f.Name + "/", "folder", "", ""})
 			}
 			for _, s := range tree.Secrets {
 				rows = append(rows, []string{
-					s.Name, "v" + strconv.Itoa(s.CurrentVersion),
-					"agents:" + onOff(s.AgentAccess), ts(s.UpdatedAt),
+					s.Name, s.Type, "v" + strconv.Itoa(s.CurrentVersion), ts(s.UpdatedAt),
 				})
+			}
+			for _, t := range tree.Tokens {
+				rows = append(rows, []string{t.Name, "token", "reads here down", ts(t.LastUsedAt)})
 			}
 			if len(rows) == 0 {
 				fmt.Println("(empty)")
 				return nil
 			}
-			table([]string{"NAME", "VERSION", "AGENT ACCESS", "UPDATED"}, rows)
+			table([]string{"NAME", "KIND", "DETAIL", "USED/UPDATED"}, rows)
 			return nil
 		},
 	}
@@ -78,9 +80,9 @@ func getCmd() *cobra.Command {
 				return nil
 			}
 			if meta {
-				table([]string{"PATH", "TYPE", "VERSION", "AGENT ACCESS", "CREATED", "UPDATED"},
+				table([]string{"PATH", "TYPE", "VERSION", "CREATED", "UPDATED"},
 					[][]string{{v.Meta.Path, v.Meta.Type, strconv.Itoa(v.Version),
-						onOff(v.Meta.AgentAccess), ts(v.Meta.CreatedAt), ts(v.Meta.UpdatedAt)}})
+						ts(v.Meta.CreatedAt), ts(v.Meta.UpdatedAt)}})
 				return nil
 			}
 			if v.Credential != nil {
@@ -135,7 +137,6 @@ func printCredential(c *store.Credential) {
 
 func setCmd() *cobra.Command {
 	var generate int
-	var agentAccess string
 	cmd := &cobra.Command{
 		Use:   "set <path> [value|-]",
 		Short: "write a secret (new version); '-' reads the value from stdin",
@@ -162,15 +163,7 @@ func setCmd() *cobra.Command {
 			default:
 				return fmt.Errorf("provide a value, '-' for stdin, or --generate N")
 			}
-			var agentPtr *bool
-			if agentAccess != "" {
-				b, err := parseOnOff(agentAccess)
-				if err != nil {
-					return err
-				}
-				agentPtr = &b
-			}
-			version, err := c.SetSecret(args[0], value, agentPtr)
+			version, err := c.SetSecret(args[0], value, nil)
 			if err != nil {
 				return err
 			}
@@ -186,7 +179,6 @@ func setCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&generate, "generate", 0, "generate a random value of this length")
-	cmd.Flags().StringVar(&agentAccess, "agent-access", "", "set agent access: on or off")
 	return cmd
 }
 
@@ -339,44 +331,29 @@ func versionsCmd() *cobra.Command {
 }
 
 func metaCmd() *cobra.Command {
-	var agentAccess string
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "meta <path>",
-		Short: "show or change a secret's metadata",
+		Short: "show a secret's metadata",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := client()
 			if err != nil {
 				return err
 			}
-			if agentAccess == "" {
-				v, err := c.GetSecret(args[0], 0)
-				if err != nil {
-					return err
-				}
-				if jsonOut {
-					printJSON(v.Meta)
-					return nil
-				}
-				table([]string{"PATH", "VERSION", "AGENT ACCESS", "ROTATION", "UPDATED"},
-					[][]string{{v.Meta.Path, strconv.Itoa(v.Meta.CurrentVersion),
-						onOff(v.Meta.AgentAccess), v.Meta.Rotation, ts(v.Meta.UpdatedAt)}})
+			v, err := c.GetSecret(args[0], 0)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				printJSON(v.Meta)
 				return nil
 			}
-			b, err := parseOnOff(agentAccess)
-			if err != nil {
-				return err
-			}
-			meta, err := c.SetSecretMeta(args[0], &b, nil)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("%s agent access %s\n", meta.Path, onOff(meta.AgentAccess))
+			table([]string{"PATH", "TYPE", "VERSION", "ROTATION", "UPDATED"},
+				[][]string{{v.Meta.Path, v.Meta.Type, strconv.Itoa(v.Meta.CurrentVersion),
+					v.Meta.Rotation, ts(v.Meta.UpdatedAt)}})
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&agentAccess, "agent-access", "", "set agent access: on or off")
-	return cmd
 }
 
 func rotateCmd() *cobra.Command {
@@ -457,16 +434,6 @@ func policyCmd() *cobra.Command {
 	cmd.Flags().StringVar(&webhookSecret, "webhook-secret", "", "HMAC key for the X-Hush-Signature header")
 	cmd.Flags().BoolVar(&includeValue, "webhook-include-value", false, "include the new value in the webhook payload")
 	return cmd
-}
-
-func parseOnOff(s string) (bool, error) {
-	switch s {
-	case "on", "true", "1", "yes":
-		return true, nil
-	case "off", "false", "0", "no":
-		return false, nil
-	}
-	return false, fmt.Errorf("expected on or off, got %q", s)
 }
 
 func trimNewline(s string) string {

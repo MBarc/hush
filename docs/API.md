@@ -10,8 +10,8 @@ Three ways to authenticate, in the order Hush checks them:
 1. **Session cookie** (`hush_session`) - set by `POST /auth/login`, used by
    the web UI.
 2. **Bearer token** - `Authorization: Bearer hush_...`, used by the CLI and
-   agents. User tokens act as their owner; agent tokens are GET-only and
-   path-scoped.
+   agents. User tokens act as their owner; an agent token lives in a folder
+   and is GET-only within that folder (cascading).
 3. **Device header** - `X-Hush-Device: <hostname>`, honored only when the
    request comes from the IP the poller last saw that hostname at.
 
@@ -23,8 +23,8 @@ The local unix socket (`/data/hush.sock`) is always admin, no credentials.
 |--------|-------|--------|
 | admin user / user token | anything | anything |
 | readonly user / its token | granted folder subtrees | never (403) |
-| agent token | scoped paths where agent-access is on | never (403) |
-| trusted device | scoped paths where agent-access is on | scoped paths, if `allowWrite` |
+| agent token | its folder and everything beneath | never (403) |
+| trusted device | granted paths (folder cascades) | granted paths, if `allowWrite` |
 
 Unauthorized reads return `404`, not `403`, so paths cannot be probed.
 
@@ -39,15 +39,17 @@ Unauthorized reads return `404`, not `403`, so paths cannot be probed.
 - `GET /tree/{path}` - list folders and secrets (filtered to your grants)
 - `POST /folders` - `{path}` (admin)
 - `DELETE /folders/{path}?recursive=1` (admin)
+- `GET /tree/{path}` also returns `tokens[]` for admins (folder items)
 - `GET /secrets/{path}` - current value; `?version=N`, `?versions=1`
-- `PUT /secrets/{path}` - `{value, agentAccess?}` writes a new version
-- `PATCH /secrets/{path}` - `{agentAccess?, rotation?}` metadata only
+- `PUT /secrets/{path}` - `{value | credential}` writes a new version
+- `PATCH /secrets/{path}` - `{rotation?}` metadata only
 - `DELETE /secrets/{path}` (admin)
 - `POST /rotate/{path}` - generate a new value per policy (admin)
 
 ### Tokens
 - `GET /tokens` (admin)
-- `POST /tokens` - `{name, type, scopes?, ttlDays?}`; returns the token once
+- `POST /tokens` - `{name, type, path?, ttlDays?}`; an agent token requires
+  `path` (the folder it reads); returns the token once
 - `DELETE /tokens/{name}`
 
 ### Users and grants (admin)

@@ -30,9 +30,9 @@ container, one volume, done.
 
 - **Secrets over an API.** Every password is one authenticated GET away.
   Scripts, containers, and agents fetch what they need, use it, and forget it.
-- **AI agent access, on your terms.** Agent tokens are scoped to folder paths
-  and only work on secrets you have individually marked as agent-accessible.
-  Flip one toggle and an agent can never see that secret, regardless of scope.
+- **AI agent access, on your terms.** An agent token lives in a folder and can
+  read that folder and everything beneath it, and nothing else. Put the token
+  where you want the agent to reach; revoke it to cut access instantly.
 - **Device identity.** Hush polls your network and keeps a device inventory.
   Trust a device and your NAS can fetch its secrets by hostname alone, with
   no token to store. Claimed hostnames are verified against the connection's
@@ -79,12 +79,14 @@ docker compose logs hush | grep password   # your one-time admin password
 
 ### Give an AI agent a secret
 
-1. Create a secret and mark it agent-accessible (the toggle in the web UI,
-   or `--agent-access on` in the CLI).
-2. Mint an agent token scoped to a folder:
+Everything in Hush lives in a folder: secrets, credentials, and tokens alike.
+An agent token is just an item you place in a folder.
+
+1. Put the secrets the agent needs in a folder, like `infra/dns`.
+2. Mint an agent token inside that folder:
 
    ```sh
-   hush token create claude --type agent --scope 'infra/dns/*'
+   hush token create infra/dns/claude --type agent
    ```
 3. The agent fetches what it needs, then forgets it:
 
@@ -93,9 +95,9 @@ docker compose logs hush | grep password   # your one-time admin password
      http://vault:4874/api/v1/secrets/infra/dns/cloudflare
    ```
 
-The read only succeeds if the token's scope matches the path **and** the
-secret's agent-access toggle is on. Turn the toggle off and no agent can
-reach it, whatever its scope. Every read is in the audit log.
+The token reads `infra/dns` and everything beneath it, and nothing else. A
+read of any other path returns 404, as if it did not exist. Revoke the token
+to cut access instantly. Every read is in the audit log.
 
 ### Let a device fetch by hostname, no token
 

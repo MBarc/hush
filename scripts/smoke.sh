@@ -45,7 +45,7 @@ ac() { curl -s -b "$JAR" "$@"; }
 
 echo "secrets:"
 ac -X PUT "$BASE/api/v1/secrets/infra/dns/cf" -H 'Content-Type: application/json' \
-  -d '{"value":"cf-secret","agentAccess":true}' >/dev/null
+  -d '{"value":"cf-secret"}' >/dev/null
 ac -X PUT "$BASE/api/v1/secrets/infra/dns/hz" -H 'Content-Type: application/json' \
   -d '{"value":"hz-secret"}' >/dev/null
 ac -X PUT "$BASE/api/v1/secrets/media/plex/tok" -H 'Content-Type: application/json' \
@@ -53,14 +53,14 @@ ac -X PUT "$BASE/api/v1/secrets/media/plex/tok" -H 'Content-Type: application/js
 VAL=$(ac "$BASE/api/v1/secrets/infra/dns/cf" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
 check "secret round-trips" "cf-secret" "$VAL"
 
-echo "agent token scoping:"
+echo "agent token folder scope:"
 TOK=$(ac -X POST "$BASE/api/v1/tokens" -H 'Content-Type: application/json' \
-  -d '{"name":"smoke-agent","type":"agent","scopes":["infra/dns/*"]}' \
+  -d '{"name":"smoke-agent","type":"agent","path":"infra/dns"}' \
   | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
 AH="Authorization: Bearer $TOK"
-check "agent reads in-scope + flagged" 200 "$(code GET /api/v1/secrets/infra/dns/cf "$AH")"
-check "agent denied flag-off"          404 "$(code GET /api/v1/secrets/infra/dns/hz "$AH")"
-check "agent denied out-of-scope"      404 "$(code GET /api/v1/secrets/media/plex/tok "$AH")"
+check "agent reads inside its folder"  200 "$(code GET /api/v1/secrets/infra/dns/cf "$AH")"
+check "agent reads folder sibling"     200 "$(code GET /api/v1/secrets/infra/dns/hz "$AH")"
+check "agent denied outside folder"    404 "$(code GET /api/v1/secrets/media/plex/tok "$AH")"
 check "agent cannot write"             403 "$(code PUT /api/v1/secrets/infra/dns/cf "$AH" '{"value":"x"}')"
 check "agent cannot browse"            403 "$(code GET /api/v1/tree/ "$AH")"
 
