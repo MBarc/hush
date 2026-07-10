@@ -18,7 +18,9 @@ const (
 type Device struct {
 	Hostname   string   `json:"hostname"`
 	Label      string   `json:"label"`
-	IP         string   `json:"ip"`
+	IP         string   `json:"ip"`      // primary address, usually IPv4
+	MAC        string   `json:"mac,omitempty"`
+	IPs        []string `json:"ips"`     // every address the device may connect from
 	FirstSeen  int64    `json:"firstSeen"`
 	LastSeen   int64    `json:"lastSeen"`
 	Status     string   `json:"status"`
@@ -26,6 +28,27 @@ type Device struct {
 	Grants     []string `json:"grants"`
 	AllowWrite bool     `json:"allowWrite"`
 	ExpiresAt  int64    `json:"expiresAt,omitempty"`
+}
+
+// HasIP reports whether ip (zone-stripped) is a known address for the device.
+func (d Device) HasIP(ip string) bool {
+	ip = stripZone(ip)
+	if ip == d.IP {
+		return true
+	}
+	for _, a := range d.IPs {
+		if a == ip {
+			return true
+		}
+	}
+	return false
+}
+
+func stripZone(ip string) string {
+	if i := strings.IndexByte(ip, '%'); i >= 0 {
+		return ip[:i]
+	}
+	return ip
 }
 
 // DeviceAccess is one device's access to a path, for the resource-side view.
@@ -38,22 +61,95 @@ type DeviceAccess struct {
 	Via      string `json:"via,omitempty"`
 }
 
-const deviceCols = `hostname, ip, first_seen, last_seen, status, scopes, allow_write, expires_at, label`
+const deviceCols = `hostname, ip, first_seen, last_seen, status, scopes, allow_write, expires_at, label, mac, ips`
 
-// UpsertDevice records a poller sighting: new devices start as
-// discovered; known devices refresh their ip and last_seen.
+// UpsertDevice records a poller sighting with no known MAC.
 func (s *Store) UpsertDevice(hostname, ip string) error {
+	return s.UpsertDeviceSeen(hostname, ip, "")
+}
+
+// UpsertDeviceSeen records a poller sighting: new devices start as discovered;
+// known devices refresh their primary ip and last_seen, learn their mac, and
+// add the seen ip to their address set.
+func (s *Store) UpsertDeviceSeen(hostname, ip, mac string) error {
 	hostname = normalizeHostname(hostname)
+	ip = stripZone(ip)
 	if hostname == "" || ip == "" {
 		return errors.New("empty hostname or ip")
 	}
+	mac = strings.ToLower(strings.TrimSpace(mac))
 	now := time.Now().Unix()
-	_, err := s.db.Exec(
-		`INSERT INTO devices (hostname, ip, first_seen, last_seen)
-		 VALUES (?, ?, ?, ?)
-		 ON CONFLICT(hostname) DO UPDATE SET ip = excluded.ip, last_seen = excluded.last_seen`,
-		hostname, ip, now, now)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var id int64
+	var ipsJSON, curMAC string
+	err = tx.QueryRow(`SELECT id, ips, mac FROM devices WHERE hostname = ?`, hostname).Scan(&id, &ipsJSON, &curMAC)
+	if errors.Is(err, sql.ErrNoRows) {
+		ips, _ := json.Marshal([]string{ip})
+		if _, err := tx.Exec(
+			`INSERT INTO devices (hostname, ip, mac, ips, first_seen, last_seen)
+			 VALUES (?, ?, ?, ?, ?, ?)`, hostname, ip, mac, string(ips), now, now); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	if err != nil {
+		return err
+	}
+	var ips []string
+	json.Unmarshal([]byte(ipsJSON), &ips)
+	ips = addUnique(ips, ip)
+	if mac == "" {
+		mac = curMAC // never clear a known MAC
+	}
+	ipsB, _ := json.Marshal(ips)
+	if _, err := tx.Exec(
+		`UPDATE devices SET ip = ?, mac = ?, ips = ?, last_seen = ? WHERE id = ?`,
+		ip, mac, string(ipsB), now, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// AddDeviceIP adds an address to a device's set (used when a request is
+// verified by MAC to come from a device at a new address).
+func (s *Store) AddDeviceIP(hostname, ip string) error {
+	ip = stripZone(ip)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id int64
+	var ipsJSON string
+	err = tx.QueryRow(`SELECT id, ips FROM devices WHERE hostname = ?`, normalizeHostname(hostname)).Scan(&id, &ipsJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var ips []string
+	json.Unmarshal([]byte(ipsJSON), &ips)
+	ips = addUnique(ips, ip)
+	ipsB, _ := json.Marshal(ips)
+	if _, err := tx.Exec(`UPDATE devices SET ips = ? WHERE id = ?`, string(ipsB), id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func addUnique(list []string, v string) []string {
+	for _, x := range list {
+		if x == v {
+			return list
+		}
+	}
+	return append(list, v)
 }
 
 // GetDevice finds a device by claimed hostname. The claim matches either
@@ -353,14 +449,15 @@ func placeholders(n int) string {
 
 func scanDevice(rows *sql.Rows) (Device, error) {
 	var d Device
-	var scopesJSON string
+	var scopesJSON, ipsJSON string
 	var exp sql.NullInt64
 	if err := rows.Scan(&d.Hostname, &d.IP, &d.FirstSeen, &d.LastSeen,
-		&d.Status, &scopesJSON, &d.AllowWrite, &exp, &d.Label); err != nil {
+		&d.Status, &scopesJSON, &d.AllowWrite, &exp, &d.Label, &d.MAC, &ipsJSON); err != nil {
 		return Device{}, err
 	}
 	d.ExpiresAt = exp.Int64
 	json.Unmarshal([]byte(scopesJSON), &d.Scopes)
+	json.Unmarshal([]byte(ipsJSON), &d.IPs)
 	return d, nil
 }
 

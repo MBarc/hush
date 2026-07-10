@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/MBarc/hush/internal/auth"
+	"github.com/MBarc/hush/internal/neigh"
 	"github.com/MBarc/hush/internal/store"
 )
 
@@ -121,8 +122,20 @@ func (s *Server) deviceIdentity(r *http.Request, claim string) (identity, bool) 
 	if d.ExpiresAt > 0 && d.ExpiresAt <= time.Now().Unix() {
 		return deny("device access expired")
 	}
-	if ip := connIP(r); ip != d.IP {
-		return deny(fmt.Sprintf("claimed %s but connected from %s (expected %s)", d.Hostname, ip, d.IP))
+	if ip := connIP(r); !d.HasIP(ip) {
+		// The device is reaching us from an address we have not recorded (its
+		// IPv6, say). Accept it only if the kernel's neighbor table says that
+		// address is the same hardware (MAC) as the device we know, then
+		// remember it so future requests from it match directly.
+		if d.MAC != "" && strings.EqualFold(macForIP(ip), d.MAC) {
+			if err := s.st.AddDeviceIP(d.Hostname, ip); err == nil {
+				s.st.Audit(store.AuditEntry{ActorType: "device", Actor: "device:" + d.Hostname,
+					Action: "device.learn", IP: ip, Detail: "verified by MAC " + d.MAC})
+			}
+		} else {
+			return deny(fmt.Sprintf("claimed %s but connected from %s (not a known address for this device)",
+				d.Hostname, ip))
+		}
 	}
 	grants, err := s.st.ListDeviceGrants(d.Hostname)
 	if err != nil {
@@ -134,13 +147,18 @@ func (s *Server) deviceIdentity(r *http.Request, claim string) (identity, bool) 
 	}, true
 }
 
-// connIP is the raw connection peer address, never X-Forwarded-For.
+// macForIP resolves a source address to its hardware address via the kernel
+// neighbor table. A package var so tests can stub the lookup.
+var macForIP = neigh.MACFor
+
+// connIP is the raw connection peer address (never X-Forwarded-For), with any
+// IPv6 "%iface" zone stripped so it matches the stored form.
 func connIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return host
+	return neigh.StripZone(host)
 }
 
 // adminOnly rejects non-admin identities. Combined with the router only

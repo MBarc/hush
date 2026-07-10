@@ -201,6 +201,45 @@ func TestDeviceDowngradeOnLastRevoke(t *testing.T) {
 	}
 }
 
+func TestDeviceLearnsMACVerifiedAddress(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/x/y", "cookie:admin", map[string]any{"value": "v"})
+
+	// The device is known at 10.0.0.5 with a MAC; test requests arrive from
+	// 127.0.0.1, an address it has not been seen at.
+	if err := e.st.UpsertDeviceSeen("box.lan", "10.0.0.5", "aa:bb:cc:dd:ee:ff"); err != nil {
+		t.Fatal(err)
+	}
+	e.call("POST", "/api/v1/grants/infra/x", "cookie:admin", map[string]any{"hostname": "box.lan"})
+
+	old := macForIP
+	defer func() { macForIP = old }()
+
+	// A source whose MAC does not match the device is rejected.
+	macForIP = func(string) string { return "00:00:00:00:00:01" }
+	if code, _ := e.deviceCall("GET", "/api/v1/secrets/infra/x/y", "box", nil); code != 401 {
+		t.Fatalf("MAC mismatch expected 401, got %d", code)
+	}
+
+	// Same hardware (matching MAC): accepted, and the new address is learned.
+	macForIP = func(string) string { return "aa:bb:cc:dd:ee:ff" }
+	code, out := e.deviceCall("GET", "/api/v1/secrets/infra/x/y", "box", nil)
+	if code != 200 || out["value"] != "v" {
+		t.Fatalf("MAC-verified read: %d %+v", code, out)
+	}
+	d, err := e.st.GetDevice("box.lan")
+	if err != nil || !d.HasIP("127.0.0.1") {
+		t.Fatalf("expected 127.0.0.1 learned, device=%+v err=%v", d, err)
+	}
+
+	// Once learned, it works even without a neighbor entry to consult.
+	macForIP = func(string) string { return "" }
+	if code, _ := e.deviceCall("GET", "/api/v1/secrets/infra/x/y", "box", nil); code != 200 {
+		t.Fatalf("learned address should match directly, got %d", code)
+	}
+}
+
 func TestDeviceNaming(t *testing.T) {
 	e := deviceEnv(t, "127.0.0.1", false)
 

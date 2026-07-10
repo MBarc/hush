@@ -87,6 +87,18 @@ func migrate(db *sql.DB) error {
 		}
 		version = 5
 	}
+	if version < 6 {
+		// A device can be reached at more than one address (its IPv4 and its
+		// IPv6, say). mac is the hardware address that ties them together;
+		// ips is the JSON set of every address the device may connect from.
+		if _, err := db.Exec(`ALTER TABLE devices ADD COLUMN mac TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`ALTER TABLE devices ADD COLUMN ips TEXT NOT NULL DEFAULT '[]'`); err != nil {
+			return err
+		}
+		version = 6
+	}
 	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
 		return err
 	}

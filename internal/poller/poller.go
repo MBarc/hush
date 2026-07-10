@@ -12,12 +12,11 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/MBarc/hush/internal/neigh"
 	"github.com/MBarc/hush/internal/store"
 )
 
@@ -64,6 +63,11 @@ func (p *Poller) sweep(ctx context.Context) {
 		log.Printf("device poller: bad cidr %q: %v", p.cidr, err)
 		return
 	}
+	_, ipnet, err := net.ParseCIDR(p.cidr)
+	if err != nil {
+		log.Printf("device poller: bad cidr %q: %v", p.cidr, err)
+		return
+	}
 	start := time.Now()
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
@@ -71,13 +75,13 @@ func (p *Poller) sweep(ctx context.Context) {
 	found := map[string]bool{}
 	// record identifies a host (reverse DNS is best-effort: many home
 	// networks publish no PTR records, so a nameless host is identified by
-	// its IP and authenticates with `X-Hush-Device: <ip>`) and stores it.
-	record := func(ip string) {
+	// its IP and authenticates with `X-Hush-Device: <ip>`) with its MAC.
+	record := func(ip, mac string) {
 		identity := ReverseLookup(ip)
 		if identity == "" {
 			identity = ip
 		}
-		if err := p.st.UpsertDevice(identity, ip); err == nil {
+		if err := p.st.UpsertDeviceSeen(identity, ip, mac); err == nil {
 			mu.Lock()
 			found[ip] = true
 			mu.Unlock()
@@ -94,8 +98,10 @@ func (p *Poller) sweep(ctx context.Context) {
 		go func(ip string) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			// A successful probe (open or refused) means the kernel has
+			// already ARP-resolved the host, so its MAC is available now.
 			if Alive(ip) {
-				record(ip)
+				record(ip, neigh.MACFor(ip))
 			}
 		}(ip)
 	}
@@ -106,75 +112,13 @@ func (p *Poller) sweep(ctx context.Context) {
 	// ARP-resolve the whole subnet, and a host answers ARP even when it
 	// silently drops our TCP probes (a firewalled desktop, say). So anything
 	// now in the neighbor table is a real device we would otherwise miss.
-	for _, n := range neighbors(p.cidr) {
+	for _, n := range neigh.InCIDR(ipnet) {
 		if !found[n.IP] {
-			record(n.IP)
+			record(n.IP, n.MAC)
 		}
 	}
 	log.Printf("device poller: swept %d addresses in %s, %d live (%d via probe, %d via arp)",
 		len(ips), time.Since(start).Round(time.Millisecond), len(found), probed, len(found)-probed)
-}
-
-// Neighbor is a host the kernel has resolved at layer 2 (an ARP entry).
-type Neighbor struct {
-	IP  string
-	MAC string
-}
-
-// neighbors reads the kernel ARP table for hosts inside cidr with a complete,
-// unicast entry. It needs host networking to see the real table; on a bridged
-// container the table is empty and this returns nothing.
-func neighbors(cidr string) []Neighbor {
-	data, err := os.ReadFile("/proc/net/arp")
-	if err != nil {
-		return nil
-	}
-	_, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil
-	}
-	return parseNeighbors(string(data), ipnet)
-}
-
-// parseNeighbors extracts complete, unicast, in-range entries from the text
-// of /proc/net/arp. Split out for testing.
-func parseNeighbors(procArp string, ipnet *net.IPNet) []Neighbor {
-	var out []Neighbor
-	for i, line := range strings.Split(procArp, "\n") {
-		if i == 0 { // header row
-			continue
-		}
-		// Columns: IPaddress HWtype Flags HWaddress Mask Device
-		f := strings.Fields(line)
-		if len(f) < 6 {
-			continue
-		}
-		ip, flags, mac := f[0], f[2], f[3]
-		fl, err := strconv.ParseUint(strings.TrimPrefix(flags, "0x"), 16, 16)
-		if err != nil || fl&0x2 == 0 { // ATF_COM: the entry has a resolved MAC
-			continue
-		}
-		parsed := net.ParseIP(ip)
-		if parsed == nil || !ipnet.Contains(parsed) || !unicastMAC(mac) {
-			continue
-		}
-		out = append(out, Neighbor{IP: ip, MAC: mac})
-	}
-	return out
-}
-
-// unicastMAC reports whether mac is a real unicast address, filtering the
-// all-zero placeholder, broadcast (ff:...), and multicast (whose first octet
-// has the low bit set).
-func unicastMAC(mac string) bool {
-	if len(mac) < 2 || mac == "00:00:00:00:00:00" {
-		return false
-	}
-	first, err := strconv.ParseUint(mac[:2], 16, 8)
-	if err != nil {
-		return false
-	}
-	return first&1 == 0
 }
 
 // Alive probes ip with quick TCP dials. Open or refused both mean a live
