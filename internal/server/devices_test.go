@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"github.com/MBarc/hush/internal/store"
 )
 
 // deviceEnv seeds secrets, a device, trusts it, and grants it the
@@ -171,6 +173,31 @@ func TestDeviceQueryMissLogged(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected a logged miss for the device, got %+v", entries)
+	}
+}
+
+func TestDeviceDowngradeOnLastRevoke(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/a/x", "cookie:admin", map[string]any{"value": "1"})
+	e.call("PUT", "/api/v1/secrets/infra/b/y", "cookie:admin", map[string]any{"value": "2"})
+	e.st.UpsertDevice("box.lan", "127.0.0.1")
+
+	// Two grants trust the device.
+	e.call("POST", "/api/v1/grants/infra/a", "cookie:admin", map[string]any{"hostname": "box.lan"})
+	e.call("POST", "/api/v1/grants/infra/b", "cookie:admin", map[string]any{"hostname": "box.lan"})
+	if d, _ := e.st.GetDevice("box.lan"); d.Status != store.DeviceTrusted {
+		t.Fatalf("expected trusted after grants, got %q", d.Status)
+	}
+	// Revoking one of two leaves it trusted.
+	e.call("DELETE", "/api/v1/grants/infra/a?hostname=box.lan", "cookie:admin", nil)
+	if d, _ := e.st.GetDevice("box.lan"); d.Status != store.DeviceTrusted {
+		t.Fatalf("expected still trusted with one grant left, got %q", d.Status)
+	}
+	// Revoking the last grant drops it back to discovered.
+	e.call("DELETE", "/api/v1/grants/infra/b?hostname=box.lan", "cookie:admin", nil)
+	if d, _ := e.st.GetDevice("box.lan"); d.Status != store.DeviceDiscovered {
+		t.Fatalf("expected discovered after last revoke, got %q", d.Status)
 	}
 }
 

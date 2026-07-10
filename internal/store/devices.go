@@ -234,21 +234,38 @@ func (s *Store) GrantDevice(hostname, path string) error {
 	return err
 }
 
-// RevokeDeviceGrant removes a device's grant on a path.
+// RevokeDeviceGrant removes a device's grant on a path. Trust follows grants:
+// when the last grant is removed, a trusted device drops back to discovered
+// (a blocked device stays blocked).
 func (s *Store) RevokeDeviceGrant(hostname, path string) error {
 	path, err := NormalizePath(path)
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(
-		`DELETE FROM device_grants WHERE path = ?
-		 AND device_id = (SELECT id FROM devices WHERE hostname = ?)`,
-		path, normalizeHostname(hostname))
+	var deviceID int64
+	err = s.db.QueryRow(`SELECT id FROM devices WHERE hostname = ?`, normalizeHostname(hostname)).Scan(&deviceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	res, err := s.db.Exec(`DELETE FROM device_grants WHERE path = ? AND device_id = ?`, path, deviceID)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
+	}
+	var remaining int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM device_grants WHERE device_id = ?`, deviceID).Scan(&remaining); err != nil {
+		return err
+	}
+	if remaining == 0 {
+		if _, err := s.db.Exec(`UPDATE devices SET status = ? WHERE id = ? AND status = ?`,
+			DeviceDiscovered, deviceID, DeviceTrusted); err != nil {
+			return err
+		}
 	}
 	return nil
 }
