@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -47,6 +48,18 @@ func serveCmd() *cobra.Command {
 			}
 			st.Audit(store.AuditEntry{ActorType: "system", Actor: "hush", Action: "server.start"})
 			srv.StartRotationLoop(context.Background(), 15*time.Minute)
+
+			// Keep audit entries for 90 days by default; prune daily.
+			retentionDays := 90
+			if v := os.Getenv("HUSH_AUDIT_RETENTION_DAYS"); v != "" {
+				if d, err := strconv.Atoi(v); err == nil && d >= 0 {
+					retentionDays = d
+				} else {
+					log.Printf("warning: bad HUSH_AUDIT_RETENTION_DAYS %q, using %d", v, retentionDays)
+				}
+			}
+			srv.StartAuditRetentionLoop(context.Background(),
+				time.Duration(retentionDays)*24*time.Hour, 24*time.Hour)
 
 			if cidr := os.Getenv("HUSH_NETWORK_CIDR"); cidr != "" {
 				interval := 5 * time.Minute

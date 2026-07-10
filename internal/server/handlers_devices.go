@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/MBarc/hush/internal/store"
 )
@@ -20,31 +19,14 @@ func (s *Server) handleDeviceList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, devices)
 }
 
-func (s *Server) handleDeviceTrust(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeviceUnblock(w http.ResponseWriter, r *http.Request) {
 	hostname := r.PathValue("hostname")
-	var req struct {
-		Scopes     []string `json:"scopes"`
-		AllowWrite bool     `json:"allowWrite"`
-		TTLDays    int      `json:"ttlDays"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		httpError(w, http.StatusBadRequest, "bad request body")
-		return
-	}
-	var expiresAt int64
-	if req.TTLDays > 0 {
-		expiresAt = time.Now().Add(time.Duration(req.TTLDays) * 24 * time.Hour).Unix()
-	}
-	if err := s.st.SetDeviceTrust(hostname, store.DeviceTrusted, req.Scopes, req.AllowWrite, expiresAt); err != nil {
+	if err := s.st.UnblockDevice(hostname); err != nil {
 		storeError(w, err)
 		return
 	}
-	s.audit(r, "device.trust", "", fmt.Sprintf("hostname=%s allowWrite=%v ttlDays=%d",
-		hostname, req.AllowWrite, req.TTLDays))
-	writeJSON(w, http.StatusOK, map[string]any{
-		"hostname": hostname, "status": store.DeviceTrusted,
-		"allowWrite": req.AllowWrite, "expiresAt": expiresAt,
-	})
+	s.audit(r, "device.unblock", "", "hostname="+hostname)
+	writeJSON(w, http.StatusOK, map[string]string{"hostname": hostname, "status": "unblocked"})
 }
 
 // --- device access grants (managed from the folder/secret side) ---
@@ -93,21 +75,33 @@ func (s *Server) handlePathGrantRemove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
 
-func (s *Server) handleDeviceName(w http.ResponseWriter, r *http.Request) {
+// handleDeviceUpdate patches a device's label and/or write access. Only the
+// fields present in the body are changed.
+func (s *Server) handleDeviceUpdate(w http.ResponseWriter, r *http.Request) {
 	hostname := r.PathValue("hostname")
 	var req struct {
-		Label string `json:"label"`
+		Label      *string `json:"label"`
+		AllowWrite *bool   `json:"allowWrite"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad request body")
 		return
 	}
-	if err := s.st.SetDeviceLabel(hostname, req.Label); err != nil {
-		storeError(w, err)
-		return
+	if req.Label != nil {
+		if err := s.st.SetDeviceLabel(hostname, *req.Label); err != nil {
+			storeError(w, err)
+			return
+		}
+		s.audit(r, "device.name", "", fmt.Sprintf("hostname=%s label=%q", hostname, *req.Label))
 	}
-	s.audit(r, "device.name", "", fmt.Sprintf("hostname=%s label=%q", hostname, req.Label))
-	writeJSON(w, http.StatusOK, map[string]string{"hostname": hostname, "label": req.Label})
+	if req.AllowWrite != nil {
+		if err := s.st.SetDeviceWrite(hostname, *req.AllowWrite); err != nil {
+			storeError(w, err)
+			return
+		}
+		s.audit(r, "device.write", "", fmt.Sprintf("hostname=%s allowWrite=%v", hostname, *req.AllowWrite))
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"hostname": hostname, "status": "updated"})
 }
 
 func (s *Server) handleDeviceBlock(w http.ResponseWriter, r *http.Request) {

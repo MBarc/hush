@@ -46,33 +46,30 @@ func deviceCmd() *cobra.Command {
 		},
 	}
 
-	var allowWrite bool
-	var ttlDays int
-	trust := &cobra.Command{
-		Use:   "trust <hostname>",
-		Short: "mark a device trusted (grant it paths with 'device grant')",
-		Args:  cobra.ExactArgs(1),
+	write := &cobra.Command{
+		Use:   "write <hostname> <on|off>",
+		Short: "allow or forbid a device writing within its granted paths",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := client()
 			if err != nil {
 				return err
 			}
-			if err := c.TrustDevice(args[0], nil, allowWrite, ttlDays); err != nil {
+			allow, err := onOffArg(args[1])
+			if err != nil {
 				return err
 			}
-			fmt.Printf("device %s trusted", args[0])
-			if allowWrite {
-				fmt.Print(" (writes allowed within its grants)")
+			if err := c.SetDeviceWrite(args[0], allow); err != nil {
+				return err
 			}
-			if ttlDays > 0 {
-				fmt.Printf(", expires in %d days", ttlDays)
+			if allow {
+				fmt.Printf("device %s may write within its granted paths\n", args[0])
+			} else {
+				fmt.Printf("device %s is read-only\n", args[0])
 			}
-			fmt.Println()
 			return nil
 		},
 	}
-	trust.Flags().BoolVar(&allowWrite, "allow-write", false, "allow writes within granted paths")
-	trust.Flags().IntVar(&ttlDays, "ttl-days", 0, "access expires after N days (0 = never)")
 
 	grant := &cobra.Command{
 		Use:   "grant <hostname> <folder-or-secret>",
@@ -125,6 +122,23 @@ func deviceCmd() *cobra.Command {
 		},
 	}
 
+	unblock := &cobra.Command{
+		Use:   "unblock <hostname>",
+		Short: "lift a block on a device",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := client()
+			if err != nil {
+				return err
+			}
+			if err := c.UnblockDevice(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("device %s unblocked\n", args[0])
+			return nil
+		},
+	}
+
 	rm := &cobra.Command{
 		Use:   "rm <hostname>",
 		Short: "forget a device",
@@ -163,8 +177,19 @@ func deviceCmd() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(ls, name, trust, grant, revoke, block, rm)
+	root.AddCommand(ls, name, write, grant, revoke, block, unblock, rm)
 	return root
+}
+
+// onOffArg parses an on/off style flag value.
+func onOffArg(s string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "on", "true", "yes", "1", "allow":
+		return true, nil
+	case "off", "false", "no", "0", "deny":
+		return false, nil
+	}
+	return false, fmt.Errorf("expected on or off, got %q", s)
 }
 
 // deviceName picks what to show: the friendly label, else a real

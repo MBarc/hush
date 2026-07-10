@@ -371,13 +371,17 @@ func (c *Client) NameDevice(hostname, label string) error {
 		map[string]string{"label": label}, nil)
 }
 
-func (c *Client) TrustDevice(hostname string, scopes []string, allowWrite bool, ttlDays int) error {
-	return c.do("POST", "/api/v1/devices/"+url.PathEscape(hostname)+"/trust",
-		map[string]any{"scopes": scopes, "allowWrite": allowWrite, "ttlDays": ttlDays}, nil)
+func (c *Client) SetDeviceWrite(hostname string, allowWrite bool) error {
+	return c.do("PATCH", "/api/v1/devices/"+url.PathEscape(hostname),
+		map[string]any{"allowWrite": allowWrite}, nil)
 }
 
 func (c *Client) BlockDevice(hostname string) error {
 	return c.do("POST", "/api/v1/devices/"+url.PathEscape(hostname)+"/block", map[string]any{}, nil)
+}
+
+func (c *Client) UnblockDevice(hostname string) error {
+	return c.do("POST", "/api/v1/devices/"+url.PathEscape(hostname)+"/unblock", map[string]any{}, nil)
 }
 
 func (c *Client) GrantDevice(hostname, path string) error {
@@ -402,6 +406,31 @@ func (c *Client) Audit(limit, offset int) ([]store.AuditEntry, error) {
 	var out []store.AuditEntry
 	err := c.do("GET", fmt.Sprintf("/api/v1/audit?limit=%d&offset=%d", limit, offset), nil, &out)
 	return out, err
+}
+
+// ExportAudit returns the whole audit log as raw file bytes in the given
+// format ("csv" or "json").
+func (c *Client) ExportAudit(format string) ([]byte, error) {
+	req, err := http.NewRequest("GET", c.base+"/api/v1/audit/export?format="+url.QueryEscape(format), nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&e)
+		return nil, &apiError{Status: resp.StatusCode, Msg: e.Error}
+	}
+	return io.ReadAll(resp.Body)
 }
 
 // escapePath escapes each segment but keeps the slashes.

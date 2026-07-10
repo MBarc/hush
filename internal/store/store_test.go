@@ -234,3 +234,26 @@ func TestAudit(t *testing.T) {
 		t.Fatalf("newest first expected: %+v", entries[0])
 	}
 }
+
+func TestPruneAudit(t *testing.T) {
+	s := testStore(t)
+	const day = int64(86400)
+	now := int64(1_800_000_000)
+	s.Audit(AuditEntry{TS: now - 200*day, ActorType: "system", Actor: "hush", Action: "ancient"})
+	s.Audit(AuditEntry{TS: now - 30*day, ActorType: "system", Actor: "hush", Action: "recent"})
+
+	n, err := s.PruneAudit(now - 90*day)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 pruned, got %d", n)
+	}
+	entries, err := s.AuditList(10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Action != "recent" {
+		t.Fatalf("only the recent entry should remain: %+v", entries)
+	}
+}

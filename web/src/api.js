@@ -69,10 +69,12 @@ export const api = {
     req('DELETE', '/api/v1/grants/' + enc(path) + '?hostname=' + encodeURIComponent(hostname)),
   nameDevice: (hostname, label) =>
     req('PATCH', '/api/v1/devices/' + encodeURIComponent(hostname), { label }),
-  trustDevice: (hostname, body) =>
-    req('POST', '/api/v1/devices/' + encodeURIComponent(hostname) + '/trust', body),
+  setDeviceWrite: (hostname, allowWrite) =>
+    req('PATCH', '/api/v1/devices/' + encodeURIComponent(hostname), { allowWrite }),
   blockDevice: (hostname) =>
     req('POST', '/api/v1/devices/' + encodeURIComponent(hostname) + '/block', {}),
+  unblockDevice: (hostname) =>
+    req('POST', '/api/v1/devices/' + encodeURIComponent(hostname) + '/unblock', {}),
   deleteDevice: (hostname) =>
     req('DELETE', '/api/v1/devices/' + encodeURIComponent(hostname)),
 

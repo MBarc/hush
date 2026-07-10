@@ -93,6 +93,7 @@ and the poller will see your LAN.
 | `HUSH_ADMIN_PASSWORD` | generated | First-boot admin password (else printed to logs) |
 | `HUSH_NETWORK_CIDR` | unset | LAN subnet to poll; unset disables discovery |
 | `HUSH_POLL_INTERVAL` | `5m` | How often to sweep the network |
+| `HUSH_AUDIT_RETENTION_DAYS` | `90` | Delete audit entries older than this; `0` keeps forever |
 | `HUSH_SOCKET` | `/data/hush.sock` | Local admin socket; `off` to disable |
 | `HUSH_TLS_CERT` / `HUSH_TLS_KEY` | unset | Serve HTTPS directly |
 

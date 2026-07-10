@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, fmtTime } from '../api'
 import { PageHeader } from './Shell'
-import { Empty, Modal, useToast } from '../components/ui'
+import { Empty, useToast } from '../components/ui'
 
 const statusTone = {
   trusted: 'border-agent/40 bg-agent/10 text-agent',
@@ -12,7 +12,6 @@ const statusTone = {
 export default function Devices() {
   const toast = useToast()
   const [devices, setDevices] = useState(null)
-  const [trusting, setTrusting] = useState(null)
 
   const load = () => api.devices().then(setDevices).catch(() => setDevices([]))
   useEffect(() => {
@@ -22,6 +21,19 @@ export default function Devices() {
   const block = async (h) => {
     await api.blockDevice(h).catch((e) => toast(e.message, 'error'))
     load()
+  }
+  const unblock = async (h) => {
+    await api.unblockDevice(h).catch((e) => toast(e.message, 'error'))
+    load()
+  }
+  const toggleWrite = async (d) => {
+    try {
+      await api.setDeviceWrite(d.hostname, !d.allowWrite)
+      load()
+      toast(d.allowWrite ? 'Writes disabled' : 'Writes allowed within its grants', 'success')
+    } catch (e) {
+      toast(e.message, 'error')
+    }
   }
   const forget = async (h) => {
     if (!confirm(`Forget ${h}? It reappears on the next sweep if still online.`)) return
@@ -34,9 +46,10 @@ export default function Devices() {
       <PageHeader title="Devices" subtitle="Machines on your network. Click a name to label one." />
       <div className="p-8">
         <div className="mb-5 rounded-card border border-border bg-surface px-4 py-3 text-sm text-secondary">
-          Hush verifies a claimed hostname against the source IP it was last seen at. Trust a device
-          to let it fetch scoped secrets with no token, just an{' '}
-          <span className="mono text-primary">X-Hush-Device</span> header.
+          A device gains access when you grant it a folder or secret from that item's{' '}
+          <span className="text-primary">Device access</span> panel. It then fetches those secrets with
+          no token, just an <span className="mono text-primary">X-Hush-Device</span> header, honored only
+          from the source IP the device was last seen at.
         </div>
 
         {devices && devices.length === 0 && (
@@ -80,13 +93,25 @@ export default function Devices() {
                     <td className="px-4 py-3 text-muted">{fmtTime(d.lastSeen)}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-3">
-                        <button className="text-accent-hover hover:underline" onClick={() => setTrusting(d)}>
-                          {d.status === 'trusted' ? 'Edit' : 'Trust'}
-                        </button>
-                        {d.status !== 'blocked' && (
-                          <button className="text-danger hover:underline" onClick={() => block(d.hostname)}>
-                            Block
+                        {d.status === 'blocked' ? (
+                          <button className="text-accent-hover hover:underline" onClick={() => unblock(d.hostname)}>
+                            Unblock
                           </button>
+                        ) : (
+                          <>
+                            {d.grants && d.grants.length > 0 && (
+                              <button
+                                className={`hover:underline ${d.allowWrite ? 'text-agent' : 'text-muted hover:text-primary'}`}
+                                onClick={() => toggleWrite(d)}
+                                title="Toggle write access within its granted paths"
+                              >
+                                {d.allowWrite ? 'Writes on' : 'Read-only'}
+                              </button>
+                            )}
+                            <button className="text-danger hover:underline" onClick={() => block(d.hostname)}>
+                              Block
+                            </button>
+                          </>
                         )}
                         <button className="text-muted hover:text-primary hover:underline" onClick={() => forget(d.hostname)}>
                           Forget
@@ -101,17 +126,6 @@ export default function Devices() {
         )}
       </div>
 
-      {trusting && (
-        <TrustModal
-          device={trusting}
-          onClose={() => setTrusting(null)}
-          onSaved={() => {
-            setTrusting(null)
-            load()
-            toast('Device trusted', 'success')
-          }}
-        />
-      )}
     </>
   )
 }
@@ -184,45 +198,3 @@ function NameCell({ d, onSaved }) {
   )
 }
 
-function TrustModal({ device, onClose, onSaved }) {
-  const [allowWrite, setAllowWrite] = useState(device.allowWrite || false)
-  const [ttlDays, setTtlDays] = useState(0)
-  const [err, setErr] = useState('')
-
-  const submit = async (e) => {
-    e.preventDefault()
-    try {
-      await api.trustDevice(device.hostname, { allowWrite, ttlDays: Number(ttlDays) })
-      onSaved()
-    } catch (e) {
-      setErr(e.message)
-    }
-  }
-
-  return (
-    <Modal title={`Trust ${device.label || device.hostname}`} onClose={onClose}>
-      <form onSubmit={submit}>
-        <p className="mb-4 text-sm text-secondary">
-          Last seen at <span className="mono text-primary">{device.ip}</span>. Requests are only honored
-          from this address. Grant it specific folders or secrets from their <span className="text-primary">Device access</span> panel.
-        </p>
-
-        <label className="mb-4 flex items-center gap-2.5 text-sm">
-          <input type="checkbox" checked={allowWrite} onChange={(e) => setAllowWrite(e.target.checked)} className="accent-agent" />
-          <span className="text-secondary">Allow writes within its granted paths (not just reads)</span>
-        </label>
-
-        <label className="mb-1.5 block text-xs font-medium text-secondary">Access expires after (days, 0 = never)</label>
-        <input className="input mb-4" type="number" min="0" value={ttlDays} onChange={(e) => setTtlDays(e.target.value)} />
-
-        {err && <p className="mb-3 text-sm text-danger">{err}</p>}
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn-primary">Trust device</button>
-        </div>
-      </form>
-    </Modal>
-  )
-}

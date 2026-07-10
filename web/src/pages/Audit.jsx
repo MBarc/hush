@@ -42,6 +42,13 @@ export default function Audit() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
+        {/* Real anchors: the server sends the whole log as a file download. */}
+        <a className="btn-ghost" href="/api/v1/audit/export?format=csv" download>
+          Export CSV
+        </a>
+        <a className="btn-ghost" href="/api/v1/audit/export?format=json" download>
+          Export JSON
+        </a>
       </PageHeader>
 
       <div className="p-8">

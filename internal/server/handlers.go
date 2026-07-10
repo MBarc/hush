@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -230,6 +231,14 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 	path := r.PathValue("path")
 	meta, err := s.st.GetSecretMeta(path)
 	if err != nil {
+		// Record machine (device/agent) queries even for paths that do not
+		// exist, so the audit log shows everything automation probed for.
+		// The 404 is identical to an ungranted-but-existing secret, so this
+		// does not make real paths probeable.
+		if errors.Is(err, store.ErrNotFound) && id.isMachine() {
+			norm, _ := store.NormalizePath(path)
+			s.audit(r, "secret.read.denied", norm, "no such secret")
+		}
 		storeError(w, err)
 		return
 	}
@@ -289,6 +298,10 @@ func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 		// Only devices with write access may mutate, and only within a
 		// folder or secret they are granted.
 		if !id.device || !id.allowWrite {
+			if id.device {
+				norm, _ := store.NormalizePath(path)
+				s.audit(r, "secret.write.denied", norm, "device is read-only")
+			}
 			httpError(w, http.StatusForbidden, "admin access required")
 			return
 		}
@@ -639,4 +652,45 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		entries = []store.AuditEntry{}
 	}
 	writeJSON(w, http.StatusOK, entries)
+}
+
+// handleAuditExport streams the whole audit log as a downloadable CSV or JSON
+// file (admin only). Times are rendered as UTC RFC3339 for portability.
+func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
+	}
+	if format != "csv" && format != "json" {
+		httpError(w, http.StatusBadRequest, "format must be csv or json")
+		return
+	}
+	entries, err := s.st.AuditAll()
+	if err != nil {
+		storeError(w, err)
+		return
+	}
+	stamp := time.Now().UTC().Format("20060102-150405")
+	s.audit(r, "audit.export", "", fmt.Sprintf("format=%s count=%d", format, len(entries)))
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf(`attachment; filename="hush-audit-%s.%s"`, stamp, format))
+
+	if format == "csv" {
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		cw := csv.NewWriter(w)
+		cw.Write([]string{"time", "actorType", "actor", "action", "path", "ip", "detail"})
+		for _, e := range entries {
+			cw.Write([]string{
+				time.Unix(e.TS, 0).UTC().Format(time.RFC3339),
+				e.ActorType, e.Actor, e.Action, e.Path, e.IP, e.Detail,
+			})
+		}
+		cw.Flush()
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if entries == nil {
+		entries = []store.AuditEntry{}
+	}
+	json.NewEncoder(w).Encode(entries)
 }

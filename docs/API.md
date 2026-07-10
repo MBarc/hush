@@ -64,12 +64,19 @@ Unauthorized reads return `404`, not `403`, so paths cannot be probed.
 
 ### Devices (admin)
 - `GET /devices`
-- `POST /devices/{hostname}/trust` - `{scopes, allowWrite, ttlDays}`
-- `POST /devices/{hostname}/block`, `DELETE /devices/{hostname}`
+- `PATCH /devices/{hostname}` - `{label?, allowWrite?}` (a device is trusted by
+  granting it a path, not by a separate step)
+- `POST /devices/{hostname}/block`, `POST /devices/{hostname}/unblock`
+- `DELETE /devices/{hostname}`
 
 ### Audit and health
 - `GET /audit?limit=&offset=` (admin)
+- `GET /audit/export?format=csv|json` (admin) - the whole log as a file
+  download; times are UTC RFC3339
 - `GET /healthz` (public)
+
+Entries older than 90 days are pruned daily (override with
+`HUSH_AUDIT_RETENTION_DAYS`; 0 keeps them forever).
 
 ## Rotation policy
 

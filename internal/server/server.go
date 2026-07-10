@@ -107,12 +107,13 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/v1/grants/{path...}", s.auth(s.adminOnly(s.handlePathGrants)))
 	mux.HandleFunc("POST /api/v1/grants/{path...}", s.auth(s.adminOnly(s.handlePathGrantAdd)))
 	mux.HandleFunc("DELETE /api/v1/grants/{path...}", s.auth(s.adminOnly(s.handlePathGrantRemove)))
-	mux.HandleFunc("PATCH /api/v1/devices/{hostname}", s.auth(s.adminOnly(s.handleDeviceName)))
-	mux.HandleFunc("POST /api/v1/devices/{hostname}/trust", s.auth(s.adminOnly(s.handleDeviceTrust)))
+	mux.HandleFunc("PATCH /api/v1/devices/{hostname}", s.auth(s.adminOnly(s.handleDeviceUpdate)))
 	mux.HandleFunc("POST /api/v1/devices/{hostname}/block", s.auth(s.adminOnly(s.handleDeviceBlock)))
+	mux.HandleFunc("POST /api/v1/devices/{hostname}/unblock", s.auth(s.adminOnly(s.handleDeviceUnblock)))
 	mux.HandleFunc("DELETE /api/v1/devices/{hostname}", s.auth(s.adminOnly(s.handleDeviceDelete)))
 
 	mux.HandleFunc("GET /api/v1/audit", s.auth(s.adminOnly(s.handleAudit)))
+	mux.HandleFunc("GET /api/v1/audit/export", s.auth(s.adminOnly(s.handleAuditExport)))
 	s.mux = mux
 }
 

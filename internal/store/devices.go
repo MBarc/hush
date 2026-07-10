@@ -131,6 +131,48 @@ func (s *Store) SetDeviceTrust(hostname, status string, scopes []string, allowWr
 	return nil
 }
 
+// SetDeviceWrite sets whether a device may write within its granted paths.
+func (s *Store) SetDeviceWrite(hostname string, allow bool) error {
+	res, err := s.db.Exec(`UPDATE devices SET allow_write = ? WHERE hostname = ?`,
+		allow, normalizeHostname(hostname))
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UnblockDevice lifts a block, restoring the device to trusted if it still
+// has grants, else to discovered. It is a no-op on a device that is not
+// blocked.
+func (s *Store) UnblockDevice(hostname string) error {
+	hostname = normalizeHostname(hostname)
+	var id int64
+	var status string
+	err := s.db.QueryRow(`SELECT id, status FROM devices WHERE hostname = ?`, hostname).Scan(&id, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status != DeviceBlocked {
+		return nil
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM device_grants WHERE device_id = ?`, id).Scan(&n); err != nil {
+		return err
+	}
+	next := DeviceDiscovered
+	if n > 0 {
+		next = DeviceTrusted
+	}
+	_, err = s.db.Exec(`UPDATE devices SET status = ? WHERE id = ?`, next, id)
+	return err
+}
+
 // SetDeviceLabel assigns (or clears, with "") a device's friendly name.
 func (s *Store) SetDeviceLabel(hostname, label string) error {
 	res, err := s.db.Exec(`UPDATE devices SET label = ? WHERE hostname = ?`,

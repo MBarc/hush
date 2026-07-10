@@ -338,6 +338,7 @@ func splitLastSegment(p string) (folder, name string) {
 
 func auditCmd() *cobra.Command {
 	var limit, offset int
+	var export string
 	cmd := &cobra.Command{
 		Use:   "audit",
 		Short: "show the audit log (newest first)",
@@ -345,6 +346,14 @@ func auditCmd() *cobra.Command {
 			c, err := client()
 			if err != nil {
 				return err
+			}
+			if export != "" {
+				data, err := c.ExportAudit(export)
+				if err != nil {
+					return err
+				}
+				os.Stdout.Write(data)
+				return nil
 			}
 			entries, err := c.Audit(limit, offset)
 			if err != nil {
@@ -366,5 +375,6 @@ func auditCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&limit, "limit", 50, "entries to show")
 	cmd.Flags().IntVar(&offset, "offset", 0, "entries to skip")
+	cmd.Flags().StringVar(&export, "export", "", "export the whole log to stdout as csv or json")
 	return cmd
 }

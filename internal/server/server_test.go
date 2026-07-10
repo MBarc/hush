@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -84,6 +85,25 @@ func (e *testEnv) call(method, path, cred string, body any) (int, map[string]any
 	var out map[string]any
 	json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
+}
+
+// rawGet returns the raw response and body, for non-JSON endpoints like the
+// audit export.
+func (e *testEnv) rawGet(path, cred string) (*http.Response, string) {
+	e.t.Helper()
+	req, _ := http.NewRequest("GET", e.ts.URL+path, nil)
+	if strings.HasPrefix(cred, "cookie:") {
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: e.jar[strings.TrimPrefix(cred, "cookie:")]})
+	} else if cred != "" {
+		req.Header.Set("Authorization", "Bearer "+cred)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp, string(b)
 }
 
 func (e *testEnv) login(username, password string) {
@@ -397,6 +417,53 @@ func TestListCatalog(t *testing.T) {
 	code, _ = e.call("GET", "/api/v1/secrets/banking/chase", token, nil)
 	if code != 404 {
 		t.Fatalf("out-of-folder GET expected 404, got %d", code)
+	}
+}
+
+func TestAuditExport(t *testing.T) {
+	e := newTestEnv(t)
+	e.login("admin", "test-admin-password")
+	e.call("PUT", "/api/v1/secrets/infra/dns/cf", "cookie:admin", map[string]any{"value": "cf"})
+
+	// CSV export: right headers, a header row, and the write entry.
+	resp, body := e.rawGet("/api/v1/audit/export?format=csv", "cookie:admin")
+	if resp.StatusCode != 200 {
+		t.Fatalf("csv export: %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
+		t.Fatalf("csv content-type: %q", ct)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "attachment") || !strings.Contains(cd, ".csv") {
+		t.Fatalf("csv disposition: %q", cd)
+	}
+	if !strings.Contains(body, "time,actorType,actor,action,path,ip,detail") {
+		t.Fatalf("csv header row missing: %q", body)
+	}
+	if !strings.Contains(body, "secret.write") {
+		t.Fatalf("csv should contain the write entry: %q", body)
+	}
+
+	// JSON export: parses to a non-empty array.
+	resp, body = e.rawGet("/api/v1/audit/export?format=json", "cookie:admin")
+	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
+		t.Fatalf("json export: %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(body), &entries); err != nil || len(entries) == 0 {
+		t.Fatalf("json export parse: %v len=%d", err, len(entries))
+	}
+
+	// Unknown format is rejected; readonly users cannot export.
+	resp, _ = e.rawGet("/api/v1/audit/export?format=xml", "cookie:admin")
+	if resp.StatusCode != 400 {
+		t.Fatalf("bad format expected 400, got %d", resp.StatusCode)
+	}
+	e.call("POST", "/api/v1/users", "cookie:admin",
+		map[string]any{"username": "ro", "password": "ro-pass-1234", "role": "readonly"})
+	e.login("ro", "ro-pass-1234")
+	resp, _ = e.rawGet("/api/v1/audit/export?format=json", "cookie:ro")
+	if resp.StatusCode != 403 {
+		t.Fatalf("readonly export expected 403, got %d", resp.StatusCode)
 	}
 }
 

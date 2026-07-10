@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -17,14 +18,17 @@ func deviceEnv(t *testing.T, ip string, allowWrite bool) *testEnv {
 	if err := e.st.UpsertDevice("nas01.lan", ip); err != nil {
 		t.Fatal(err)
 	}
-	code, out := e.call("POST", "/api/v1/devices/nas01.lan/trust", "cookie:admin",
-		map[string]any{"allowWrite": allowWrite})
-	if code != 200 {
-		t.Fatalf("trust: %d %+v", code, out)
-	}
-	code, out = e.call("POST", "/api/v1/grants/infra/nas", "cookie:admin", map[string]any{"hostname": "nas01.lan"})
+	// Granting a folder both trusts the device and cascades to everything
+	// beneath it; there is no separate trust step.
+	code, out := e.call("POST", "/api/v1/grants/infra/nas", "cookie:admin", map[string]any{"hostname": "nas01.lan"})
 	if code != 201 {
 		t.Fatalf("grant folder: %d %+v", code, out)
+	}
+	if allowWrite {
+		code, out = e.call("PATCH", "/api/v1/devices/nas01.lan", "cookie:admin", map[string]any{"allowWrite": true})
+		if code != 200 {
+			t.Fatalf("allow write: %d %+v", code, out)
+		}
 	}
 	return e
 }
@@ -78,9 +82,8 @@ func TestDeviceIndividualSecretGrant(t *testing.T) {
 	e.call("PUT", "/api/v1/secrets/infra/dns/cf", "cookie:admin", map[string]any{"value": "cf"})
 	e.call("PUT", "/api/v1/secrets/infra/dns/hz", "cookie:admin", map[string]any{"value": "hz"})
 	e.st.UpsertDevice("box.lan", "127.0.0.1")
-	e.call("POST", "/api/v1/devices/box.lan/trust", "cookie:admin", map[string]any{})
 
-	// Grant a single secret, not the folder.
+	// Grant a single secret, not the folder (the grant is what trusts it).
 	code, _ := e.call("POST", "/api/v1/grants/infra/dns/cf", "cookie:admin", map[string]any{"hostname": "box.lan"})
 	if code != 201 {
 		t.Fatalf("grant secret: %d", code)
@@ -117,9 +120,8 @@ func TestDeviceRootGrant(t *testing.T) {
 	e.call("PUT", "/api/v1/secrets/infra/dns/cf", "cookie:admin", map[string]any{"value": "cf"})
 	e.call("PUT", "/api/v1/secrets/media/plex/tok", "cookie:admin", map[string]any{"value": "plex"})
 	e.st.UpsertDevice("super.lan", "127.0.0.1")
-	e.call("POST", "/api/v1/devices/super.lan/trust", "cookie:admin", map[string]any{})
 
-	// Grant at the vault root (empty path) covers everything.
+	// Grant at the vault root (empty path) covers everything and trusts it.
 	code, out := e.call("POST", "/api/v1/grants/", "cookie:admin", map[string]any{"hostname": "super.lan"})
 	if code != 201 {
 		t.Fatalf("root grant: %d %+v", code, out)
@@ -144,6 +146,31 @@ func TestDeviceRootGrant(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected super.lan inherited via /, got %+v", acc)
+	}
+}
+
+func TestDeviceQueryMissLogged(t *testing.T) {
+	e := deviceEnv(t, "127.0.0.1", false)
+
+	// A device asking for a path that does not exist still gets a 404, but
+	// the query is recorded so the audit log shows everything it probed for.
+	code, _ := e.deviceCall("GET", "/api/v1/secrets/infra/nas/ghost", "nas01", nil)
+	if code != 404 {
+		t.Fatalf("missing secret expected 404, got %d", code)
+	}
+	entries, err := e.st.AuditList(20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, en := range entries {
+		if en.Action == "secret.read.denied" && en.Path == "infra/nas/ghost" &&
+			en.Detail == "no such secret" && strings.HasPrefix(en.Actor, "device:") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a logged miss for the device, got %+v", entries)
 	}
 }
 
@@ -224,5 +251,22 @@ func TestBlockedDeviceDenied(t *testing.T) {
 	code, _ = e.deviceCall("GET", "/api/v1/secrets/infra/nas/backup-key", "nas01", nil)
 	if code != 401 {
 		t.Fatalf("blocked device expected 401, got %d", code)
+	}
+}
+
+func TestDeviceUnblockRestoresAccess(t *testing.T) {
+	e := deviceEnv(t, "127.0.0.1", false)
+	e.call("POST", "/api/v1/devices/nas01.lan/block", "cookie:admin", map[string]any{})
+	if code, _ := e.deviceCall("GET", "/api/v1/secrets/infra/nas/backup-key", "nas01", nil); code != 401 {
+		t.Fatalf("blocked device expected 401, got %d", code)
+	}
+	// Unblocking a device that still has grants restores its access.
+	code, _ := e.call("POST", "/api/v1/devices/nas01.lan/unblock", "cookie:admin", map[string]any{})
+	if code != 200 {
+		t.Fatalf("unblock: %d", code)
+	}
+	code, out := e.deviceCall("GET", "/api/v1/secrets/infra/nas/backup-key", "nas01", nil)
+	if code != 200 || out["value"] != "backup-secret" {
+		t.Fatalf("unblocked read: %d %+v", code, out)
 	}
 }
