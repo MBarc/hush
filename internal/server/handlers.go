@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/MBarc/hush/internal/auth"
@@ -132,6 +133,15 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		storeError(w, err)
 		return
 	}
+	// Tokens are folder items too, but they are admin-managed: only admins
+	// see them in the tree.
+	var tokens []store.Token
+	if id.isAdmin() {
+		if tokens, err = s.st.ListFolderTokens(path); err != nil {
+			storeError(w, err)
+			return
+		}
+	}
 	if !id.isAdmin() {
 		full, partial := folderVisibility(id.grants, path)
 		if !full && !partial {
@@ -155,7 +165,11 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	if secrets == nil {
 		secrets = []store.SecretMeta{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"path": path, "folders": folders, "secrets": secrets})
+	if tokens == nil {
+		tokens = []store.Token{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path": path, "folders": folders, "secrets": secrets, "tokens": tokens})
 }
 
 func (s *Server) handleFolderCreate(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +209,7 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 		storeError(w, err)
 		return
 	}
-	if !canReadSecret(id, meta.Path, meta.AgentAccess) {
+	if !canReadSecret(id, meta.Path) {
 		// 404 for unauthorized reads so paths are not probeable.
 		s.audit(r, "secret.read.denied", meta.Path, "")
 		httpError(w, http.StatusNotFound, "not found")
@@ -363,10 +377,10 @@ func (s *Server) handleTokenList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name    string   `json:"name"`
-		Type    string   `json:"type"`
-		Scopes  []string `json:"scopes"`
-		TTLDays int      `json:"ttlDays"`
+		Name    string `json:"name"`
+		Type    string `json:"type"`
+		Path    string `json:"path"`
+		TTLDays int    `json:"ttlDays"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		httpError(w, http.StatusBadRequest, "bad request body")
@@ -378,8 +392,8 @@ func (s *Server) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 			httpError(w, http.StatusForbidden, "agent tokens require admin access")
 			return
 		}
-		if len(req.Scopes) == 0 {
-			httpError(w, http.StatusBadRequest, "agent tokens require explicit scopes")
+		if strings.TrimSpace(req.Path) == "" {
+			httpError(w, http.StatusBadRequest, "an agent token lives in a folder; specify a folder path")
 			return
 		}
 	} else if id.tokenType == store.TokenTypeAgent {
@@ -400,14 +414,14 @@ func (s *Server) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 	if owner == "" || id.actorType == "socket" {
 		owner = "admin"
 	}
-	if err := s.st.CreateToken(req.Name, req.Type, hash, owner, req.Scopes, expiresAt); err != nil {
+	if err := s.st.CreateToken(req.Name, req.Type, hash, owner, req.Path, expiresAt); err != nil {
 		storeError(w, err)
 		return
 	}
-	s.audit(r, "token.create", "", fmt.Sprintf("name=%s type=%s scopes=%v ttlDays=%d",
-		req.Name, req.Type, req.Scopes, req.TTLDays))
+	s.audit(r, "token.create", req.Path, fmt.Sprintf("name=%s type=%s ttlDays=%d",
+		req.Name, req.Type, req.TTLDays))
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"name": req.Name, "type": req.Type, "scopes": req.Scopes,
+		"name": req.Name, "type": req.Type, "path": req.Path,
 		"expiresAt": expiresAt, "token": token,
 		"note": "store this token now, it is never shown again",
 	})

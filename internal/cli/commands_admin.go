@@ -102,18 +102,29 @@ func tokenCmd() *cobra.Command {
 	root := &cobra.Command{Use: "token", Short: "manage API tokens"}
 
 	var typ string
-	var scopes []string
 	var ttlDays int
 	create := &cobra.Command{
-		Use:   "create <name>",
+		Use:   "create <name | folder/name>",
 		Short: "create a token (shown once)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Create a token, shown once. A user token (--type user) is a\n" +
+			"personal login for the CLI. An agent token (--type agent) lives in a\n" +
+			"folder and may read that folder and everything beneath it; give it as\n" +
+			"folder/name, like \"HomeLab/Raspberry Pis/deploy-bot\".",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := client()
 			if err != nil {
 				return err
 			}
-			out, err := c.CreateToken(args[0], typ, scopes, ttlDays)
+			name, path := args[0], ""
+			if typ == "agent" {
+				folder, base := splitLastSegment(args[0])
+				if folder == "" {
+					return fmt.Errorf("an agent token lives in a folder, like HomeLab/deploy-bot")
+				}
+				name, path = base, folder
+			}
+			out, err := c.CreateToken(name, typ, path, ttlDays)
 			if err != nil {
 				return err
 			}
@@ -121,13 +132,16 @@ func tokenCmd() *cobra.Command {
 				printJSON(out)
 				return nil
 			}
-			fmt.Printf("token %s (%s) created. store it now, it is never shown again:\n%s\n",
-				out.Name, out.Type, out.Token)
+			where := ""
+			if out.Path != "" {
+				where = " in " + out.Path
+			}
+			fmt.Printf("token %s (%s)%s created. store it now, it is never shown again:\n%s\n",
+				out.Name, out.Type, where, out.Token)
 			return nil
 		},
 	}
 	create.Flags().StringVar(&typ, "type", "user", "token type: user or agent")
-	create.Flags().StringArrayVar(&scopes, "scope", nil, "path scope for agent tokens, like infra/dns/* (repeatable)")
 	create.Flags().IntVar(&ttlDays, "ttl-days", 0, "expire after N days (0 = never)")
 
 	ls := &cobra.Command{
@@ -149,9 +163,9 @@ func tokenCmd() *cobra.Command {
 			var rows [][]string
 			for _, t := range tokens {
 				rows = append(rows, []string{t.Name, t.Type, t.Owner,
-					strings.Join(t.Scopes, ","), ts(t.ExpiresAt), ts(t.LastUsedAt)})
+					t.Path, ts(t.ExpiresAt), ts(t.LastUsedAt)})
 			}
-			table([]string{"NAME", "TYPE", "OWNER", "SCOPES", "EXPIRES", "LAST USED"}, rows)
+			table([]string{"NAME", "TYPE", "OWNER", "FOLDER", "EXPIRES", "LAST USED"}, rows)
 			return nil
 		},
 	}
@@ -309,6 +323,17 @@ func userCmd() *cobra.Command {
 
 	root.AddCommand(create, ls, rm, passwd, grant, revoke)
 	return root
+}
+
+// splitLastSegment splits "a/b/c" into folder "a/b" and name "c". A bare
+// name with no slash returns an empty folder.
+func splitLastSegment(p string) (folder, name string) {
+	p = strings.Trim(strings.TrimSpace(p), "/")
+	i := strings.LastIndex(p, "/")
+	if i < 0 {
+		return "", p
+	}
+	return strings.TrimSpace(p[:i]), strings.TrimSpace(p[i+1:])
 }
 
 func auditCmd() *cobra.Command {

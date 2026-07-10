@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, fmtTime } from '../api'
-import { AgentPill, CopyButton, useToast } from '../components/ui'
+import { CopyButton, useToast } from '../components/ui'
 import { DeviceAccess } from '../components/DeviceAccess'
 
 // The secret detail slides in from the right. Value stays masked until
@@ -56,15 +56,6 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
       load()
       onChanged()
       toast('Rotated', 'success')
-    } catch (e) {
-      toast(e.message, 'error')
-    }
-  }
-  const toggleAgent = async () => {
-    try {
-      await api.patchSecret(path, { agentAccess: !data.meta.agentAccess })
-      load()
-      onChanged()
     } catch (e) {
       toast(e.message, 'error')
     }
@@ -173,31 +164,6 @@ export default function SecretDrawer({ path, canEdit, onClose, onChanged }) {
 
             {/* Device access (grants, cascading) */}
             {canEdit && <DeviceAccess path={path} />}
-
-            {/* Agent token access */}
-            <section className="card p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-primary">Agent token access</p>
-                  <p className="text-xs text-muted">
-                    When on, scoped agent tokens (for CI and AI) can read this secret. Devices use the grants above.
-                  </p>
-                </div>
-                <AgentPill on={data.meta.agentAccess} />
-              </div>
-              {canEdit && (
-                <button
-                  className={`mt-3 w-full rounded-control border px-3 py-2 text-sm transition-colors ${
-                    data.meta.agentAccess
-                      ? 'border-border text-secondary hover:border-border-strong'
-                      : 'border-agent/40 bg-agent/10 text-agent hover:bg-agent/20'
-                  }`}
-                  onClick={toggleAgent}
-                >
-                  {data.meta.agentAccess ? 'Turn agent token access off' : 'Turn agent token access on'}
-                </button>
-              )}
-            </section>
 
             {/* Rotation policy */}
             {canEdit && <RotationPanel path={path} rotation={rotation} onSaved={() => { load(); onChanged() }} />}

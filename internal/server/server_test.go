@@ -302,33 +302,40 @@ func TestAgentTokenScoping(t *testing.T) {
 	e := newTestEnv(t)
 	e.login("admin", "test-admin-password")
 	e.call("PUT", "/api/v1/secrets/infra/dns/cloudflare", "cookie:admin",
-		map[string]any{"value": "cf-token", "agentAccess": true})
+		map[string]any{"value": "cf-token"})
 	e.call("PUT", "/api/v1/secrets/infra/dns/hetzner", "cookie:admin",
-		map[string]any{"value": "hz-token"}) // agentAccess stays false
+		map[string]any{"value": "hz-token"})
 	e.call("PUT", "/api/v1/secrets/media/jellyfin/admin", "cookie:admin",
-		map[string]any{"value": "jf", "agentAccess": true})
+		map[string]any{"value": "jf"})
 
+	// An agent token lives in infra/dns and reads that folder and everything
+	// beneath it, with no per-secret flag to set.
 	code, out := e.call("POST", "/api/v1/tokens", "cookie:admin",
-		map[string]any{"name": "claude", "type": "agent", "scopes": []string{"infra/dns/*"}})
+		map[string]any{"name": "claude", "type": "agent", "path": "infra/dns"})
 	if code != 201 {
 		t.Fatalf("token create: %d %+v", code, out)
 	}
 	token := out["token"].(string)
 
-	// In scope + agent-accessible: allowed.
+	// Inside the folder: both siblings are readable, no flag needed.
 	code, out = e.call("GET", "/api/v1/secrets/infra/dns/cloudflare", token, nil)
 	if code != 200 || out["value"] != "cf-token" {
 		t.Fatalf("agent read allowed: %d %+v", code, out)
 	}
-	// In scope but per-secret flag off: denied.
-	code, _ = e.call("GET", "/api/v1/secrets/infra/dns/hetzner", token, nil)
-	if code != 404 {
-		t.Fatalf("agent read without flag expected 404, got %d", code)
+	code, out = e.call("GET", "/api/v1/secrets/infra/dns/hetzner", token, nil)
+	if code != 200 || out["value"] != "hz-token" {
+		t.Fatalf("agent cascade read: %d %+v", code, out)
 	}
-	// Agent-accessible but out of scope: denied.
+	// Outside the folder: denied.
 	code, _ = e.call("GET", "/api/v1/secrets/media/jellyfin/admin", token, nil)
 	if code != 404 {
-		t.Fatalf("agent read out of scope expected 404, got %d", code)
+		t.Fatalf("agent read out of folder expected 404, got %d", code)
+	}
+	// An agent token must name a folder.
+	code, _ = e.call("POST", "/api/v1/tokens", "cookie:admin",
+		map[string]any{"name": "rootless", "type": "agent"})
+	if code != 400 {
+		t.Fatalf("agent token without folder expected 400, got %d", code)
 	}
 	// Agents cannot write, browse, or admin.
 	code, _ = e.call("PUT", "/api/v1/secrets/infra/dns/cloudflare", token, map[string]any{"value": "x"})

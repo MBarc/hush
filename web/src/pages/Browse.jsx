@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { api } from '../api'
+import { api, fmtTime } from '../api'
 import { useMe } from '../App'
-import { VaultTabs } from './Shell'
-import { AgentPill, Empty, Modal, useToast } from '../components/ui'
+import { CopyButton, Empty, Modal, useToast } from '../components/ui'
 import { DeviceAccess } from '../components/DeviceAccess'
 import SecretDrawer from './SecretDrawer'
 
@@ -17,8 +16,11 @@ export default function Browse() {
   const [tree, setTree] = useState(null)
   const [error, setError] = useState('')
   const [openSecret, setOpenSecret] = useState(null)
+  const [openToken, setOpenToken] = useState(null)
   const [newSecret, setNewSecret] = useState(false)
   const [newFolder, setNewFolder] = useState(false)
+  const [newToken, setNewToken] = useState(false)
+  const [freshToken, setFreshToken] = useState(null)
   const [folderDrawer, setFolderDrawer] = useState(false)
 
   const load = () => {
@@ -38,7 +40,7 @@ export default function Browse() {
   return (
     <>
       <div className="flex h-16 items-center justify-between border-b border-border px-8">
-        <VaultTabs active="secrets" />
+        <h1 className="text-lg font-semibold leading-tight">Vault</h1>
         <div className="flex items-center gap-2">
           {me.admin && (
             <button className="btn-ghost" onClick={() => setFolderDrawer(true)}>
@@ -50,6 +52,11 @@ export default function Browse() {
               <button className="btn-ghost" onClick={() => setNewFolder(true)}>
                 New folder
               </button>
+              {path && (
+                <button className="btn-ghost" onClick={() => setNewToken(true)}>
+                  New token
+                </button>
+              )}
               <button className="btn-primary" onClick={() => setNewSecret(true)}>
                 New secret
               </button>
@@ -89,12 +96,13 @@ export default function Browse() {
 
         {tree && (
           <div className="card divide-y divide-border overflow-hidden">
-            {tree.folders.length === 0 && tree.secrets.length === 0 && (
-              <Empty>
-                <p className="mono text-sm">This folder is empty.</p>
-                {me.admin && <p className="text-xs">Create a secret or folder to fill it.</p>}
-              </Empty>
-            )}
+            {tree.folders.length === 0 && tree.secrets.length === 0 &&
+              (tree.tokens || []).length === 0 && (
+                <Empty>
+                  <p className="mono text-sm">This folder is empty.</p>
+                  {me.admin && <p className="text-xs">Create a secret, token, or folder to fill it.</p>}
+                </Empty>
+              )}
 
             {tree.folders.map((f) => (
               <button
@@ -127,7 +135,23 @@ export default function Browse() {
                       rotates {JSON.parse(s.rotation).intervalDays}d
                     </span>
                   )}
-                  <AgentPill on={s.agentAccess} />
+                </span>
+              </button>
+            ))}
+
+            {(tree.tokens || []).map((t) => (
+              <button
+                key={'tok:' + t.name}
+                onClick={() => setOpenToken(t)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-raised/50"
+              >
+                <TokenGlyph />
+                <span className="mono text-sm text-primary">{t.name}</span>
+                <span className="ml-auto flex items-center gap-3">
+                  {t.expiresAt > 0 && (
+                    <span className="pill border-border text-secondary">expires {fmtTime(t.expiresAt)}</span>
+                  )}
+                  <span className="pill border-agent/40 bg-agent/10 text-agent">token</span>
                 </span>
               </button>
             ))}
@@ -143,6 +167,30 @@ export default function Browse() {
           onChanged={load}
         />
       )}
+      {openToken && (
+        <TokenDrawer
+          token={openToken}
+          canEdit={me.admin}
+          onClose={() => setOpenToken(null)}
+          onRevoked={() => {
+            setOpenToken(null)
+            load()
+            toast('Token revoked', 'success')
+          }}
+        />
+      )}
+      {newToken && (
+        <NewTokenModal
+          base={path}
+          onClose={() => setNewToken(false)}
+          onCreated={(t) => {
+            setNewToken(false)
+            setFreshToken(t)
+            load()
+          }}
+        />
+      )}
+      {freshToken && <RevealToken token={freshToken} onClose={() => setFreshToken(null)} />}
       {folderDrawer && <FolderDrawer path={path} onClose={() => setFolderDrawer(false)} />}
       {newFolder && (
         <NewFolderModal
@@ -216,7 +264,6 @@ function NewSecretModal({ base, onClose, onCreated }) {
   const [type, setType] = useState('value')
   const [value, setValue] = useState('')
   const [cred, setCred] = useState({ username: '', password: '', url: '', notes: '' })
-  const [agentAccess, setAgentAccess] = useState(false)
   const [err, setErr] = useState('')
 
   const setField = (k) => (e) => setCred({ ...cred, [k]: e.target.value })
@@ -230,9 +277,9 @@ function NewSecretModal({ base, onClose, onCreated }) {
     try {
       const full = `${base}/${name}`
       if (type === 'credential') {
-        await api.setCredential(full, cred, agentAccess)
+        await api.setCredential(full, cred)
       } else {
-        await api.setSecret(full, value, agentAccess)
+        await api.setSecret(full, value)
       }
       onCreated(full)
     } catch (e) {
@@ -300,10 +347,10 @@ function NewSecretModal({ base, onClose, onCreated }) {
           </div>
         )}
 
-        <label className="mt-4 flex items-center gap-2.5 text-sm">
-          <input type="checkbox" checked={agentAccess} onChange={(e) => setAgentAccess(e.target.checked)} className="accent-agent" />
-          <span className="text-secondary">Allow AI agents and devices to read this</span>
-        </label>
+        <p className="mt-4 text-xs text-muted">
+          Access is controlled by the folder: grant a device folder access, or place an agent token in a
+          folder to let it read everything inside.
+        </p>
         {err && <p className="mt-3 text-sm text-danger">{err}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="btn-ghost" onClick={onClose}>
@@ -330,6 +377,146 @@ function TypeCard({ active, onClick, title, desc }) {
       <p className="text-sm font-medium text-primary">{title}</p>
       <p className="mt-0.5 text-xs text-muted">{desc}</p>
     </button>
+  )
+}
+
+function NewTokenModal({ base, onClose, onCreated }) {
+  const [name, setName] = useState('')
+  const [ttlDays, setTtlDays] = useState(0)
+  const [err, setErr] = useState('')
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!base) {
+      setErr('A token lives inside a folder. Open one first.')
+      return
+    }
+    try {
+      const t = await api.createToken({ name, type: 'agent', path: base, ttlDays: Number(ttlDays) })
+      onCreated(t)
+    } catch (e) {
+      setErr(e.message)
+    }
+  }
+
+  return (
+    <Modal title="New token" onClose={onClose}>
+      <form onSubmit={submit}>
+        <p className="mb-4 text-sm text-secondary">
+          This token reads <span className="mono text-primary">{base || 'vault'}/</span> and everything
+          beneath it. Hand it to an AI agent or a script; it can GET those secrets and nothing else.
+        </p>
+
+        <label className="mb-1.5 block text-xs font-medium text-secondary">Name</label>
+        <input
+          className="input mono mb-4"
+          autoFocus
+          placeholder="deploy-bot"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+
+        <label className="mb-1.5 block text-xs font-medium text-secondary">Expire after (days, 0 = never)</label>
+        <input className="input mb-4" type="number" min="0" value={ttlDays} onChange={(e) => setTtlDays(e.target.value)} />
+
+        {err && <p className="mb-3 text-sm text-danger">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn-primary" disabled={!name || !base}>
+            Create
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function RevealToken({ token, onClose }) {
+  return (
+    <Modal title="Token created" onClose={onClose}>
+      <p className="mb-3 text-sm text-secondary">
+        Copy this now. For your security, it is never shown again.
+      </p>
+      <div className="rounded-control border border-border bg-raised px-3 py-2.5 mono text-sm text-agent break-all">
+        {token.token}
+      </div>
+      <div className="mt-4 flex justify-end gap-2">
+        <CopyButton value={token.token} label="Copy token" />
+        <button className="btn-primary" onClick={onClose}>
+          Done
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+function TokenDrawer({ token, canEdit, onClose, onRevoked }) {
+  const toast = useToast()
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const revoke = async () => {
+    if (!confirm(`Revoke token ${token.name}? Anything using it loses access immediately.`)) return
+    try {
+      await api.deleteToken(token.name)
+      onRevoked()
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  }
+
+  const rows = [
+    ['Reads', (token.path || 'vault') + '/ and everything beneath'],
+    ['Owner', token.owner || '-'],
+    ['Expires', token.expiresAt > 0 ? fmtTime(token.expiresAt) : 'never'],
+    ['Last used', token.lastUsedAt > 0 ? fmtTime(token.lastUsedAt) : 'never'],
+    ['Created', fmtTime(token.createdAt)],
+  ]
+
+  return (
+    <div className="fixed inset-0 z-30 flex justify-end bg-base/60 backdrop-blur-sm" onMouseDown={onClose}>
+      <div
+        className="flex h-full w-full max-w-lg flex-col border-l border-border bg-surface"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between border-b border-border p-6">
+          <div>
+            <p className="mono text-xs text-muted">{token.path}/</p>
+            <h2 className="mono text-xl font-semibold text-primary">{token.name}</h2>
+            <span className="pill mt-2 inline-block border-agent/40 bg-agent/10 text-agent">agent token</span>
+          </div>
+          <button onClick={onClose} className="text-muted hover:text-primary" aria-label="Close">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          <p className="text-sm text-secondary">
+            The token's value is shown only once, at creation. To rotate it, revoke this one and create a
+            new token.
+          </p>
+          <dl className="card divide-y divide-border overflow-hidden text-sm">
+            {rows.map(([k, v]) => (
+              <div key={k} className="flex gap-4 px-4 py-3">
+                <dt className="w-24 shrink-0 text-muted">{k}</dt>
+                <dd className="mono text-primary break-all">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          {canEdit && (
+            <button className="btn-ghost w-full !text-danger" onClick={revoke}>
+              Revoke token
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -376,6 +563,15 @@ function FolderGlyph() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F6FFF" strokeWidth="1.8">
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+  )
+}
+function TokenGlyph() {
+  // a key, to mark an agent token among the folder's items
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B79BFF" strokeWidth="1.8">
+      <circle cx="8" cy="15" r="4" />
+      <path d="M11 12l7-7M16 4l3 3M14 6l2.5 2.5" />
     </svg>
   )
 }

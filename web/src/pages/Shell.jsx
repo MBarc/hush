@@ -3,10 +3,10 @@ import { api } from '../api'
 import { useMe } from '../App'
 import { Logo, RoleBadge } from '../components/ui'
 
-// The Vault blade holds both secrets and tokens (as tabs), so it is active
-// on the browse and tokens routes.
+// The Vault blade is one folder tree holding secrets, credentials, and
+// tokens together, so it is active on the browse routes.
 const nav = [
-  { to: '/', label: 'Vault', icon: VaultIcon, active: (p) => p === '/' || p.startsWith('/browse') || p.startsWith('/tokens') },
+  { to: '/', label: 'Vault', icon: VaultIcon, active: (p) => p === '/' || p.startsWith('/browse') },
   { to: '/devices', label: 'Devices', icon: DeviceIcon, active: (p) => p.startsWith('/devices') },
   { to: '/users', label: 'Users', icon: UsersIcon, admin: true, active: (p) => p.startsWith('/users') },
   { to: '/audit', label: 'Audit', icon: PulseIcon, admin: true, active: (p) => p.startsWith('/audit') },
@@ -74,27 +74,6 @@ export function PageHeader({ title, subtitle, children }) {
         {subtitle && <p className="text-xs text-muted">{subtitle}</p>}
       </div>
       <div className="flex items-center gap-2">{children}</div>
-    </div>
-  )
-}
-
-// VaultTabs is the sub-navigation inside the Vault blade: secrets and
-// tokens live together here.
-export function VaultTabs({ active }) {
-  const tab = (to, key, label) => (
-    <Link
-      to={to}
-      className={`rounded-control px-3 py-1.5 text-sm font-medium transition-colors ${
-        active === key ? 'bg-raised text-primary' : 'text-secondary hover:text-primary'
-      }`}
-    >
-      {label}
-    </Link>
-  )
-  return (
-    <div className="flex items-center gap-1">
-      {tab('/', 'secrets', 'Secrets')}
-      {tab('/tokens', 'tokens', 'Tokens')}
     </div>
   )
 }

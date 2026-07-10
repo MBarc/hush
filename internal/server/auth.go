@@ -22,8 +22,8 @@ type identity struct {
 	role         string
 	tokenName    string
 	tokenType    string   // user | agent (when actorType == token)
+	tokenPath    string   // agent token's folder: it reads this folder and everything beneath
 	grants       []string // readonly user's folder grants
-	scopes       []string // agent token's path-glob scopes
 	device       bool
 	deviceGrants []string // folder/secret paths this device may read
 	allowWrite   bool     // device may write within its grants
@@ -82,7 +82,7 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 				if err == nil {
 					id := identity{
 						actorType: "token", username: owner.Username, role: owner.Role,
-						tokenName: tok.Name, tokenType: tok.Type, grants: owner.Grants, scopes: tok.Scopes,
+						tokenName: tok.Name, tokenType: tok.Type, tokenPath: tok.Path, grants: owner.Grants,
 					}
 					next(w, r.WithContext(withIdentity(r.Context(), id)))
 					return
@@ -159,15 +159,19 @@ func (s *Server) adminOnly(next http.HandlerFunc) http.HandlerFunc {
 
 // canReadSecret decides whether id may read the secret at path.
 //   - a device may read a path it is granted (directly or via an ancestor
-//     folder); the per-secret agent flag does not apply to devices.
-//   - an agent token needs the per-secret agent flag on and a matching scope.
+//     folder).
+//   - an agent token reads its own folder and everything beneath it; a token
+//     with no folder reads nothing.
 //   - admins read anything; readonly users read within their folder grants.
-func canReadSecret(id identity, path string, agentAccess bool) bool {
+func canReadSecret(id identity, path string) bool {
 	if id.device {
 		return grantCovers(id.deviceGrants, path)
 	}
 	if id.tokenType == store.TokenTypeAgent {
-		return agentAccess && auth.MatchAnyScope(id.scopes, path)
+		if id.tokenPath == "" {
+			return false
+		}
+		return grantCovers([]string{id.tokenPath}, path)
 	}
 	if id.isAdmin() {
 		return true

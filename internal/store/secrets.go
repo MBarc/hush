@@ -488,6 +488,13 @@ func (s *Store) DeleteFolder(path string, recursive bool) error {
 			return ErrNotEmpty
 		}
 	}
+	// Agent tokens live in a folder but have no foreign key to it, so drop
+	// any that lived in this folder or its subtree along with it.
+	if _, err := s.db.Exec(
+		`DELETE FROM tokens WHERE path = ? OR path LIKE ? ESCAPE '\'`,
+		path, likePrefix(path)); err != nil {
+		return err
+	}
 	res, err := s.db.Exec(`DELETE FROM folders WHERE path = ?`, path)
 	if err != nil {
 		return err
@@ -496,6 +503,13 @@ func (s *Store) DeleteFolder(path string, recursive bool) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// likePrefix builds a LIKE pattern matching path's descendants ("path/..."),
+// escaping LIKE metacharacters in path so names with % or _ are literal.
+func likePrefix(path string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(path) + "/%"
 }
 
 // CountSecrets returns the number of secrets in the vault.

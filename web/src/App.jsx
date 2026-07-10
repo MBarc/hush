@@ -6,7 +6,6 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import Login from './pages/Login'
 import Shell from './pages/Shell'
 import Browse from './pages/Browse'
-import Tokens from './pages/Tokens'
 import Devices from './pages/Devices'
 import Users from './pages/Users'
 import Audit from './pages/Audit'
@@ -49,7 +48,6 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Browse />} />
                 <Route path="/browse/*" element={<Browse />} />
-                <Route path="/tokens" element={<Tokens />} />
                 <Route path="/devices" element={<Devices />} />
                 <Route path="/users" element={me.admin ? <Users /> : <Navigate to="/" />} />
                 <Route path="/audit" element={me.admin ? <Audit /> : <Navigate to="/" />} />

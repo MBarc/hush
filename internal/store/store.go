@@ -78,6 +78,15 @@ func migrate(db *sql.DB) error {
 		}
 		version = 4
 	}
+	if version < 5 {
+		// A token can live in a folder like a secret does. An agent token's
+		// path is the folder it lives in and may read (cascading). NULL means
+		// a personal CLI-login token that acts as its owning account.
+		if _, err := db.Exec(`ALTER TABLE tokens ADD COLUMN path TEXT`); err != nil {
+			return err
+		}
+		version = 5
+	}
 	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
 		return err
 	}

@@ -177,6 +177,7 @@ type Tree struct {
 	Path    string             `json:"path"`
 	Folders []store.FolderInfo `json:"folders"`
 	Secrets []store.SecretMeta `json:"secrets"`
+	Tokens  []store.Token      `json:"tokens"`
 }
 
 func (c *Client) Tree(path string) (Tree, error) {
@@ -265,17 +266,17 @@ func (c *Client) DeleteFolder(path string, recursive bool) error {
 }
 
 type CreatedToken struct {
-	Name      string   `json:"name"`
-	Type      string   `json:"type"`
-	Scopes    []string `json:"scopes"`
-	ExpiresAt int64    `json:"expiresAt"`
-	Token     string   `json:"token"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Path      string `json:"path"`
+	ExpiresAt int64  `json:"expiresAt"`
+	Token     string `json:"token"`
 }
 
-func (c *Client) CreateToken(name, typ string, scopes []string, ttlDays int) (CreatedToken, error) {
+func (c *Client) CreateToken(name, typ, path string, ttlDays int) (CreatedToken, error) {
 	var out CreatedToken
 	err := c.do("POST", "/api/v1/tokens", map[string]any{
-		"name": name, "type": typ, "scopes": scopes, "ttlDays": ttlDays,
+		"name": name, "type": typ, "path": path, "ttlDays": ttlDays,
 	}, &out)
 	return out, err
 }
